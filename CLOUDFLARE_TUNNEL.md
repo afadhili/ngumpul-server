@@ -75,6 +75,15 @@ docker compose --profile tunnel logs -f cloudflared
 
 The service mounts `./cloudflared` at `/etc/cloudflared` and runs the local config. It is behind the `tunnel` Compose profile, so it does not start during normal local development.
 
+The container uses `restart: unless-stopped`, so it starts again when the Docker daemon starts. That only helps if Docker itself is enabled at boot:
+
+```sh
+sudo systemctl enable --now docker.service docker.socket containerd.service
+systemctl is-enabled docker.service docker.socket containerd.service
+```
+
+`docker compose down` removes the container, so recreate it with the `tunnel` profile afterward. The `cloudflared access tcp` process used for database access is a separate client-side process and is never started automatically.
+
 Verify the public routes:
 
 ```sh
