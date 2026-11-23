@@ -54,10 +54,22 @@ const authOptions: BetterAuthOptions = {
     emailAndPassword: {
         enabled: true,
         requireEmailVerification: true,
+        revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
         sendOnSignUp: true,
         sendOnSignIn: true,
+    },
+    rateLimit: {
+        enabled: true,
+        window: 60,
+        max: 100,
+        customRules: {
+            "/email-otp/verify-email": { window: 60, max: 10 },
+            "/email-otp/request-password-reset": { window: 60, max: 3 },
+            "/email-otp/reset-password": { window: 60, max: 10 },
+            "/forget-password/email-otp": { window: 60, max: 3 },
+        },
     },
     plugins: [
         emailOTP({

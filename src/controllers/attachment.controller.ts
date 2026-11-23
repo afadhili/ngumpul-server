@@ -7,13 +7,15 @@ import { directMessage } from "../db/schema/direct-message";
 import { friendship, serverChannel, serverMember } from "../db/schema/community";
 import { getSessionUserId } from "../lib/request-auth";
 import { emitDirectMessage } from "./direct-message.controller";
-import { attachmentPolicies } from "../models/attachment-policy";
+import { attachmentPolicies, matchesDeclaredMimeType } from "../models/attachment-policy";
 import {
     createAttachmentDownloadUrl,
+    createAttachmentPreviewUrl,
     createAttachmentUploadForm,
     deleteObject,
     finalizeUploadedObject,
     inspectObject,
+    readObjectPrefix,
 } from "../services/object-storage.service";
 
 type TargetType = "direct" | "channel";
@@ -80,7 +82,7 @@ export async function completeAttachmentUpload(c: Context) {
         .where(and(eq(attachment.id, attachmentId), eq(attachment.uploaderId, userId)))
         .limit(1);
     if (!item) return c.json({ error: "Attachment not found" }, 404);
-    if (item.status === "ready") return c.json({ attachment: toPublicAttachment(item) });
+    if (item.status === "ready") return c.json({ attachment: toPublicAttachment(c, item) });
 
     if (item.uploadExpiresAt.getTime() <= Date.now()) {
         await deleteObject(item.uploadKey).catch(() => undefined);
@@ -102,15 +104,21 @@ export async function completeAttachmentUpload(c: Context) {
 
     try {
         await finalizeUploadedObject(item.uploadKey, item.storageKey, item.mimeType, item.fileName);
+        const prefix = await readObjectPrefix(item.storageKey, 4096);
+        if (!prefix || !matchesDeclaredMimeType(item.mimeType, prefix)) {
+            await deleteObject(item.storageKey).catch(() => undefined);
+            await db.delete(attachment).where(eq(attachment.id, item.id));
+            return c.json({ error: "Uploaded file content does not match its declared type" }, 400);
+        }
         const [ready] = await db.update(attachment)
             .set({ status: "ready", uploadedAt: new Date() })
             .where(and(eq(attachment.id, item.id), eq(attachment.uploaderId, userId), eq(attachment.status, "pending")))
             .returning();
-        if (ready) return c.json({ attachment: toPublicAttachment(ready) });
+        if (ready) return c.json({ attachment: toPublicAttachment(c, ready) });
 
         const [current] = await db.select().from(attachment).where(eq(attachment.id, item.id)).limit(1);
         return current?.status === "ready"
-            ? c.json({ attachment: toPublicAttachment(current) })
+            ? c.json({ attachment: toPublicAttachment(c, current) })
             : c.json({ error: "Unable to finalize upload" }, 409);
     } catch (error) {
         console.error("Unable to finalize attachment upload:", error);
@@ -140,7 +148,7 @@ export async function listConversationAttachments(c: Context) {
         .where(and(eq(attachment.targetType, targetType), eq(attachment.status, "ready"), scope))
         .orderBy(attachment.createdAt)
         .limit(100);
-    return c.json({ attachments: items.map(toPublicAttachment) });
+    return c.json({ attachments: items.map(item => toPublicAttachment(c, item)) });
 }
 
 export async function getAttachmentDownloadUrl(c: Context) {
@@ -163,6 +171,29 @@ export async function getAttachmentDownloadUrl(c: Context) {
         return c.json({ url, expiresInSeconds: 300 });
     } catch (error) {
         console.error("Unable to sign attachment download:", error);
+        return c.json({ error: "Object storage is unavailable" }, 503);
+    }
+}
+
+export async function getAttachmentPreview(c: Context) {
+    const attachmentId = c.req.param("attachmentId") ?? "";
+    const [item] = await db.select({
+        storageKey: attachment.storageKey,
+        mimeType: attachment.mimeType,
+        fileName: attachment.fileName,
+    }).from(attachment)
+        .where(and(eq(attachment.id, attachmentId), eq(attachment.status, "ready")))
+        .limit(1);
+    if (!item) return c.json({ error: "Attachment not found" }, 404);
+
+    try {
+        const url = await createAttachmentPreviewUrl(item.storageKey, item.mimeType, item.fileName);
+        c.header("Cache-Control", "private, no-store");
+        c.header("Cross-Origin-Resource-Policy", "cross-origin");
+        c.header("X-Robots-Tag", "noindex, nofollow");
+        return c.redirect(url, 302);
+    } catch (error) {
+        console.error("Unable to sign attachment preview:", error);
         return c.json({ error: "Object storage is unavailable" }, 503);
     }
 }
@@ -255,7 +286,7 @@ function sanitizeFileName(value: unknown) {
     return name;
 }
 
-function toPublicAttachment(item: typeof attachment.$inferSelect) {
+function toPublicAttachment(c: Context, item: typeof attachment.$inferSelect) {
     return {
         id: item.id,
         uploaderId: item.uploaderId,
@@ -266,5 +297,6 @@ function toPublicAttachment(item: typeof attachment.$inferSelect) {
         sizeBytes: item.sizeBytes,
         uploadedAt: item.uploadedAt,
         createdAt: item.createdAt,
+        previewUrl: new URL(`/api/attachments/${encodeURIComponent(item.id)}/preview`, c.req.url).toString(),
     };
 }

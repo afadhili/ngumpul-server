@@ -8,8 +8,8 @@ services:
             MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-pbp-minio-local-secret-change-me-32}
             MINIO_API_CORS_ALLOW_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
         ports:
-            - "9000:9000"
-            - "9001:9001"
+            - "127.0.0.1:9000:9000"
+            - "127.0.0.1:9001:9001"
         volumes:
             - s3_data:/data
         healthcheck:
@@ -22,7 +22,7 @@ services:
         image: redis:7-alpine
         restart: unless-stopped
         ports:
-            - "${REDIS_PORT:-6379}:6379"
+            - "127.0.0.1:${REDIS_PORT:-6379}:6379"
         volumes:
             - redis_data:/data
         healthcheck:
@@ -39,7 +39,7 @@ services:
             POSTGRES_USER: ${POSTGRES_USER:-postgres}
             POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
         ports:
-            - "${POSTGRES_PORT:-5432}:5432"
+            - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
         volumes:
             - postgres_data:/var/lib/postgresql/data
         healthcheck:
@@ -72,12 +72,12 @@ services:
             SMTP_SECURE: ${SMTP_SECURE:-false}
             SMTP_USER: ${SMTP_USER:-}
             SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-            EMAIL_FROM: ${EMAIL_FROM:-PBP Server <no-reply@localhost>}
+            EMAIL_FROM: ${EMAIL_FROM:-Ngumpul <no-reply@localhost>}
             REDIS_URL: redis://redis:6379
             LIVEKIT_URL: ws://livekit:7880
             LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
-            LIVEKIT_API_KEY: pbpdevkey
-            LIVEKIT_API_SECRET: pbp-livekit-local-secret-change-me-32
+            LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}
+            LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
             S3_BUCKET: ${S3_BUCKET:-pbp-attachments}
             S3_REGION: ${S3_REGION:-us-east-1}
             S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
@@ -101,6 +101,8 @@ services:
         image: livekit/livekit-server:latest
         restart: unless-stopped
         command: ["--config", "/etc/livekit.yaml"]
+        environment:
+            LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}"
         ports:
             - "7880:7880/tcp"
             - "7881:7881/tcp"

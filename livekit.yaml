@@ -10,5 +10,4 @@ rtc:
 redis:
   address: redis:6379
 
-keys:
-  pbpdevkey: pbp-livekit-local-secret-change-me-32
+# API keys are supplied through the LIVEKIT_KEYS environment variable.

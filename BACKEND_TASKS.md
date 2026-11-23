@@ -12,7 +12,7 @@
 - [x] Email/password auth and Better Auth route mount.
 - [x] Google OAuth provider configuration (Google credentials still need to be supplied in `.env`).
 - [x] PostgreSQL/Drizzle, Redis, and LiveKit services in Docker Compose.
-- [x] Basic WebSocket endpoint with Redis Pub/Sub broadcast.
+- [x] Authenticated WebSocket endpoints for private direct messages and server text channels, backed by Redis Pub/Sub.
 
 ## First backend tranche
 
@@ -22,8 +22,8 @@
 - [x] LiveKit voice-channel tokens: require server membership and issue room-scoped, expiring credentials.
 - [x] S3-compatible attachment storage: private bucket, signed bounded uploads, attachment metadata, immutable final objects, and access-checked temporary download URLs.
 - [x] Persist direct messages, enforce friend/block access, and publish private direct-message events through Redis-backed WebSockets.
-- [ ] Persist server-channel messages and bind access to channel membership.
-- [ ] Edit/delete server and channel metadata; manage member roles and removal.
+- [x] Persist server-channel messages and bind access to channel membership.
+- [x] Edit/delete server and channel metadata; manage member roles and removal.
 - [ ] Connect a voice client to LiveKit and implement speaking/mute/leave flows in the application client.
 
 ## Feature backlog
@@ -33,6 +33,7 @@
 - [x] Edit profile display name, avatar URL, and description.
 - [x] Verify accounts with an email OTP; Better Auth blocks password and Google OAuth sessions until the address is verified.
 - [x] Change password with current-password verification and Better Auth password validation.
+- [x] Reset a forgotten password with a six-digit email OTP; the OTP is single-use, expires in ten minutes, and is rate-limited.
 - [x] Block and unblock users; remove friendship/pending requests and prevent new friend requests while blocked.
 - [x] Configure photo, online-status, and last-seen visibility (`everyone`, `friends`, `nobody`); enforce photo visibility in username search.
 - [x] Report users with a reason and optional details.
@@ -72,14 +73,15 @@
 ### Servers and channels (replaces group chat)
 
 - [x] Create servers, invite/join by code, and create/list text or voice channels.
-- [ ] Add/remove server members outside the invite flow.
-- [ ] Edit server name, icon, and description.
-- [ ] Manage server admin roles and permissions.
+- [x] Add/remove server members outside the invite flow.
+- [x] Edit server name, icon, and description; delete servers and channels.
+- [x] Manage server admin roles and permissions (`owner`, `admin`, `member`).
+- [x] Persist text-channel messages with edits, per-user or global deletes, reply references, and attachments.
 - [ ] Mention members with `@`.
 - [ ] Create polls and show vote results.
 - [ ] Send server announcements.
 - [ ] Support voice and video calls/streams in voice channels (voice token endpoint is ready; client join/stream controls remain).
-- [ ] Add server invites, invite expiry, and usage limits.
+- [x] Add server invites with expiry and usage limits.
 
 ### Media, notifications, and appearance
 
@@ -99,6 +101,9 @@
 - Email OTP flow is captured locally by Mailpit in Compose; production must supply a real SMTP provider. OTPs expire after 10 minutes, allow five verification attempts, and are stored hashed.
 - Direct-message smoke flow passed: persisted text, authenticated Redis/WebSocket delivery, reply preview, edit, delivered/read receipt, per-user and global deletion, cursor pagination, and S3 image upload/link/download/deletion.
 - Local Compose uses Silo (MinIO-compatible S3 API) with auto-created private bucket `pbp-attachments`; configure S3 environment variables to use another S3 provider.
+- Server/channel smoke flow passed: server and channel metadata updates, member add/list/promote/remove, owner protections, channel message send/list/edit/delete with attachment linking, and authenticated channel WebSocket delivery.
+- Security hardening: authenticated WebSockets with Origin checks, socket revocation on member removal/block, explicit Better Auth rate limits, 1 MiB JSON body cap, security headers, HTTP timeouts, server-side attachment magic-byte validation, distinct rotated auth/LiveKit secrets supplied through `.env`, and loopback-only PostgreSQL/Redis/object-store ports.
+- Attachment preview smoke flow passed: a ready PNG rendered through the unauthenticated public `/api/attachments/:attachmentId/preview` capability URL (302 to an inline signed object URL, correct bytes), while `/download-url` still required a session; test metadata and objects were removed afterward.
 
 ## First-tranche API
 
@@ -108,15 +113,22 @@
 - `POST /api/friends/requests/:requestId/accept`, `/decline`, or `/cancel`, plus `DELETE /api/friends/:userId`: request and friendship lifecycle.
 - `GET/POST /api/servers`: list or create servers; creators become owners and get a `general` text channel.
 - `POST /api/servers/:serverId/invites` and `POST /api/servers/invites/:code/join`: create and redeem expiring/limited-use invitations.
+- `PATCH/DELETE /api/servers/:serverId`: edit server name/description/icon (owner/admin) or delete the server (owner only).
 - `GET/POST /api/servers/:serverId/channels`: list or create `text` and `voice` channels; only owners/admins can create channels.
+- `PATCH/DELETE /api/servers/:serverId/channels/:channelId`: rename/reorder a channel or delete it (owner/admin). Channel `kind` is immutable.
+- `GET/POST /api/servers/:serverId/members`: list members or add one by `{ "username": "..." }` or `{ "userId": "..." }` (owner/admin).
+- `PATCH/DELETE /api/servers/:serverId/members/:userId`: owner changes a member role (`admin` or `member`); members may leave, and owners/admins may remove members, with owner/admin protections.
 - `POST /api/servers/:serverId/channels/:channelId/voice-token`: issue a one-hour LiveKit token to a server member for that voice channel.
+- `GET/POST /api/servers/:serverId/channels/:channelId/messages`: list or send text-channel messages. Listing supports `limit` (1–100) and `before` (message ID) cursor pagination and returns `nextCursor`. Sending accepts `text`, `attachmentId`, and `replyToMessageId`.
+- `PATCH/DELETE /api/servers/:serverId/channels/:channelId/messages/:messageId`: edit the sender's message, or delete it for the sender only (`scope=me`) or everyone (`scope=everyone`; sender or owner/admin). Attachment-only messages are supported.
 - `POST /api/attachments/uploads`: create attachment metadata and return a short-lived signed S3 POST form. JSON fields: `targetType` (`direct` or `channel`), `targetId`, `fileName`, `mimeType`, `sizeBytes`. Upload the file to the returned `upload.url` as multipart form data with every returned `upload.fields` value and a `file` field.
 - `POST /api/attachments/:attachmentId/complete`: owner verifies and finalizes the staged upload. Final object keys cannot be overwritten by the upload form.
 - `GET /api/attachments?targetType=...&targetId=...`: list ready attachment metadata after access checks.
-- `GET /api/attachments/:attachmentId/download-url`: get a five-minute download URL after access checks. `DELETE /api/attachments/:attachmentId`: uploader removes the metadata and object.
-- Allowed attachment types and per-type limits are enforced by the backend; signed POST policies also cap upload size. Storage bucket stays private; the API mediates metadata, finalization, and access authorization.
+- `GET /api/attachments/:attachmentId/download-url`: get a five-minute download URL after access checks. `GET /api/attachments/:attachmentId/preview`: public, no-session capability URL that redirects to a short-lived inline object URL; attachment responses include it as `previewUrl`. Anyone with the preview URL can view the file. `DELETE /api/attachments/:attachmentId`: uploader removes the metadata and object.
+- Allowed attachment types and per-type limits are enforced by the backend; signed POST policies also cap upload size. Storage bucket stays private; the API mediates metadata, finalization, and authenticated download authorization, with the public capability preview route as the explicit exception.
 - Better Auth password change: `POST /api/auth/change-password` with `{ "currentPassword": "...", "newPassword": "...", "revokeOtherSessions": true }`.
 - Email verification: signup sends an OTP to the email. `POST /api/auth/email-otp/verify-email` accepts `{ "email": "...", "otp": "..." }`; request a replacement with `POST /api/auth/email-otp/send-verification-otp` and `{ "email": "...", "type": "email-verification" }`. The OTP is only delivered by email and is never returned by the API.
+- Password reset: `POST /api/auth/email-otp/request-password-reset` with `{ "email": "..." }` sends a `forget-password` OTP; complete it with `POST /api/auth/email-otp/reset-password` and `{ "email": "...", "otp": "...", "password": "..." }`. The request response is generic, the code is single-use and expires in ten minutes, reset requests are limited to three per minute, and existing sessions are revoked on success.
 - `POST /api/users/:userId/block`, `DELETE /api/users/:userId/block`, and `GET /api/blocks`: block lifecycle. Blocking removes an existing friendship and pending requests; requests and username search honor blocks in either direction.
 - `POST /api/users/:userId/reports` with `{ "reason": "spam|harassment|impersonation|inappropriate_content|other", "details": "optional" }`: submit a user report. Duplicate reports from one reporter for one account are rejected.
 - `GET/PUT /api/privacy`: read or update `photoVisibility`, `onlineStatusVisibility`, and `lastSeenVisibility` using `everyone`, `friends`, or `nobody`. Search results enforce photo visibility; presence enforcement awaits the presence feature.
@@ -124,3 +136,4 @@
 - `PATCH /api/direct-messages/:messageId`: edit the sender's message text. `DELETE /api/direct-messages/:messageId?scope=me|everyone`: hide it for the signed-in user or delete it for both participants (sender only); `scope` is required.
 - `POST /api/direct-messages/:messageId/receipts` with `{ "status": "delivered|read" }`: acknowledge the received message and all earlier incoming messages in that conversation.
 - `WS /ws/dm?peerId=...`: authenticated private realtime stream for two friends; it relays message, edit, delete, and receipt events. Send messages through the authenticated REST API.
+- `WS /ws/channel?channelId=...`: authenticated realtime stream for a server text channel, available only to current server members. It emits `connected`, `channel_message` created/updated/deleted events, and closes with code `4003` when access is revoked. Browser Origins must match `CORS_ORIGIN`/`BETTER_AUTH_URL`.

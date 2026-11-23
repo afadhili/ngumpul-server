@@ -45,7 +45,7 @@ export async function listDirectMessages(c: Context) {
         ? await db.select().from(directMessage).where(inArray(directMessage.id, replyIds))
         : [];
     const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row)]));
-    const nextCursor = rows.length === rawLimit ? rows[0]?.id ?? null : null;
+    const nextCursor = rows.length === rawLimit ? rows[rows.length - 1]?.id ?? null : null;
     const messages = rows.reverse().map(row => ({
         ...toPublicMessage(row),
         replyTo: row.replyToMessageId ? replyById.get(row.replyToMessageId) ?? null : null,

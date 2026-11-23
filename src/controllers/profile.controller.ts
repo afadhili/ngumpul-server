@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { friendship, userBlock } from "../db/schema/community";
+import { isUniqueViolation } from "../lib/db-errors";
 import { getSessionUserId } from "../lib/request-auth";
 
 type ProfileInput = {
@@ -152,8 +153,4 @@ function isHttpUrl(value: string) {
     } catch {
         return false;
     }
-}
-
-function isUniqueViolation(error: unknown): error is { code: string } {
-    return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }

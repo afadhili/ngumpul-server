@@ -4,7 +4,9 @@ import type { Context } from "hono";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { friendRequest, friendship, userBlock } from "../db/schema/community";
+import { isUniqueViolation } from "../lib/db-errors";
 import { getSessionUserId } from "../lib/request-auth";
+import { revokeDirectConversation } from "../services/socket-registry.service";
 
 export async function listFriends(c: Context) {
     const userId = await getSessionUserId(c);
@@ -148,7 +150,11 @@ export async function removeFriend(c: Context) {
     const firstId = userId < friendUserId ? userId : friendUserId;
     const secondId = userId < friendUserId ? friendUserId : userId;
     const removed = await db.delete(friendship).where(and(eq(friendship.userId, firstId), eq(friendship.friendUserId, secondId))).returning();
-    return removed.length ? c.body(null, 204) : c.json({ error: "Friend not found" }, 404);
+    if (removed.length) {
+        revokeDirectConversation(userId, friendUserId);
+        return c.body(null, 204);
+    }
+    return c.json({ error: "Friend not found" }, 404);
 }
 
 async function updateFriendRequestStatus(c: Context, status: "declined" | "canceled") {
@@ -160,8 +166,4 @@ async function updateFriendRequestStatus(c: Context, status: "declined" | "cance
         : and(eq(friendRequest.id, requestId), eq(friendRequest.requesterId, userId), eq(friendRequest.status, "pending"));
     const [updated] = await db.update(friendRequest).set({ status, updatedAt: new Date() }).where(condition).returning();
     return updated ? c.json({ request: updated }) : c.json({ error: "Pending friend request not found" }, 404);
-}
-
-function isUniqueViolation(error: unknown): error is { code: string } {
-    return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }

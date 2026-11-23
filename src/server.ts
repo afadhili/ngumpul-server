@@ -13,9 +13,13 @@ await Promise.all([connectRealtimeService(), ensureBucketExists()]);
 
 const server = serve({ fetch: app.fetch, port }, info => {
     console.log(`Server listening on http://localhost:${info.port}`);
-    console.log(`WebSocket chat available at ws://localhost:${info.port}/ws?room=lobby`);
+    console.log(`WebSocket chat available at ws://localhost:${info.port}/ws/channel?channelId=... and /ws/dm?peerId=...`);
 });
-const closeWebSocketServer = attachWebSocket(server as HttpServer);
+const httpServer = server as HttpServer;
+httpServer.requestTimeout = 30_000;
+httpServer.headersTimeout = 10_000;
+httpServer.keepAliveTimeout = 5_000;
+const closeWebSocketServer = attachWebSocket(httpServer);
 
 let shuttingDown = false;
 const shutdown = async () => {

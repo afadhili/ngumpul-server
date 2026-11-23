@@ -57,6 +57,17 @@ export async function inspectObject(key: string) {
     return requireClient(internalClient).send(new HeadObjectCommand({ Bucket: requireBucket(), Key: key }));
 }
 
+export async function readObjectPrefix(key: string, maxBytes: number) {
+    const result = await requireClient(internalClient).send(new GetObjectCommand({
+        Bucket: requireBucket(),
+        Key: key,
+        Range: `bytes=0-${Math.max(0, maxBytes - 1)}`,
+    }));
+    if (!result.Body) return null;
+    const bytes = await result.Body.transformToByteArray();
+    return bytes.subarray(0, maxBytes);
+}
+
 export async function finalizeUploadedObject(uploadKey: string, storageKey: string, mimeType: string, fileName: string) {
     const safeName = encodeURIComponent(fileName).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
     const disposition = /^(image|audio|video)\//.test(mimeType) ? "inline" : "attachment";
@@ -67,14 +78,22 @@ export async function finalizeUploadedObject(uploadKey: string, storageKey: stri
         MetadataDirective: "REPLACE",
         ContentType: mimeType,
         ContentDisposition: `${disposition}; filename*=UTF-8''${safeName}`,
-        Metadata: { originalfilename: fileName },
+        Metadata: { originalfilename: encodeURIComponent(fileName) },
     }));
     await deleteObject(uploadKey);
 }
 
 export async function createAttachmentDownloadUrl(key: string, mimeType: string, fileName: string) {
-    const safeName = encodeURIComponent(fileName).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
     const disposition = /^(image|audio|video)\//.test(mimeType) ? "inline" : "attachment";
+    return createAttachmentUrl(key, mimeType, fileName, disposition);
+}
+
+export async function createAttachmentPreviewUrl(key: string, mimeType: string, fileName: string) {
+    return createAttachmentUrl(key, mimeType, fileName, "inline");
+}
+
+async function createAttachmentUrl(key: string, mimeType: string, fileName: string, disposition: "inline" | "attachment") {
+    const safeName = encodeURIComponent(fileName).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
     const command = new GetObjectCommand({
         Bucket: requireBucket(),
         Key: key,

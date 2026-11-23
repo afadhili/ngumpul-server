@@ -4,6 +4,7 @@ import {
     createAttachmentUpload,
     deleteAttachment,
     getAttachmentDownloadUrl,
+    getAttachmentPreview,
     listConversationAttachments,
 } from "../controllers/attachment.controller";
 import {
@@ -60,6 +61,7 @@ apiRoutes.get("/attachments", listConversationAttachments);
 apiRoutes.post("/attachments/uploads", createAttachmentUpload);
 apiRoutes.post("/attachments/:attachmentId/complete", completeAttachmentUpload);
 apiRoutes.get("/attachments/:attachmentId/download-url", getAttachmentDownloadUrl);
+apiRoutes.get("/attachments/:attachmentId/preview", getAttachmentPreview);
 apiRoutes.delete("/attachments/:attachmentId", deleteAttachment);
 
 export { apiRoutes };

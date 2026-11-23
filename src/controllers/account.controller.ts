@@ -5,6 +5,7 @@ import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { friendRequest, friendship, userBlock, userReport } from "../db/schema/community";
 import { getSessionUserId } from "../lib/request-auth";
+import { revokeDirectConversation } from "../services/socket-registry.service";
 
 const reportReasons = new Set(["spam", "harassment", "impersonation", "inappropriate_content", "other"]);
 
@@ -47,6 +48,7 @@ export async function blockUser(c: Context) {
             updatedAt: new Date(),
         }).where(and(eq(friendRequest.requesterId, targetId), eq(friendRequest.recipientId, userId), eq(friendRequest.status, "pending")));
     });
+    revokeDirectConversation(userId, targetId);
     return c.body(null, 204);
 }
 
