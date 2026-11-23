@@ -86,7 +86,7 @@ services:
             S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-pbp-minio-local-secret-change-me-32}
             S3_AUTO_CREATE_BUCKET: ${S3_AUTO_CREATE_BUCKET:-true}
         ports:
-            - "3000:3000"
+            - "127.0.0.1:3000:3000"
         depends_on:
             db:
                 condition: service_healthy
@@ -96,6 +96,18 @@ services:
                 condition: service_healthy
             mailpit:
                 condition: service_started
+
+    cloudflared:
+        image: cloudflare/cloudflared:latest
+        restart: unless-stopped
+        profiles: ["tunnel"]
+        command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+        volumes:
+            - ./cloudflared:/etc/cloudflared:ro
+        depends_on:
+            - app
+            - livekit
+            - minio
 
     livekit:
         image: livekit/livekit-server:latest

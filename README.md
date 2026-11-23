@@ -49,6 +49,16 @@ Verification, reset, sign-in, and email-change messages use a branded responsive
 
 Set `BETTER_AUTH_URL` to the public origin of the API and `CORS_ORIGIN` to the frontend origin when using a separate browser client. Browser requests that use cookies should include credentials. `DATABASE_URL` is for running the API from your host; `DATABASE_URL_DOCKER` is used by Compose, where PostgreSQL is reached by the `db` service name. Compose reads PostgreSQL database, username, password, and published port from the corresponding `.env` values.
 
+## Cloudflare Tunnel
+
+To expose the API, LiveKit signaling, and object storage through one tunnel with separate hostnames, see [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md). The optional `cloudflared` service uses a locally-managed tunnel config under the gitignored `cloudflared/` directory and starts with:
+
+```sh
+docker compose --profile tunnel up -d cloudflared
+```
+
+PostgreSQL can be exposed as an opt-in TCP route for remote administration; see [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md#5-database-access-opt-in). Redis is deliberately not routed through the tunnel. LiveKit media (UDP) also cannot traverse an HTTP tunnel; use LiveKit Cloud, direct media ports, or TURN/TLS.
+
 ## Run the full stack with Docker
 
 Copy `.env.example` to `.env`, set `BETTER_AUTH_SECRET`, then run:
@@ -57,7 +67,7 @@ Copy `.env.example` to `.env`, set `BETTER_AUTH_SECRET`, then run:
 docker compose up --build
 ```
 
-Compose starts PostgreSQL, Redis, LiveKit, Silo (an S3-compatible object store), and Mailpit, then the app runs Drizzle migrations and serves the API on port `3000`. Redis is available on port `6379`; LiveKit signaling is available at `ws://localhost:7880` using `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from `.env`, which Compose passes to both the app and LiveKit. LiveKit media uses TCP `7881` and UDP ports `50000-50100`. The S3 API is available at `http://localhost:9000` and its console at `http://localhost:9001`; bucket `pbp-attachments` is created automatically and remains private. Mailpit captures outgoing development email at `http://localhost:8025` and accepts SMTP on port `1025`. PostgreSQL, Redis, and object data use named volumes. Their host ports are bound to `127.0.0.1`, so database, cache, and object-store services are not reachable from other machines. Development credentials in `.env.example` are local only; change them before exposing services.
+Compose starts PostgreSQL, Redis, LiveKit, Silo (an S3-compatible object store), and Mailpit, then the app runs Drizzle migrations and serves the API on port `3000` (bound to `127.0.0.1`; use the Cloudflare Tunnel for public access). Redis is available on port `6379`; LiveKit signaling is available at `ws://localhost:7880` using `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from `.env`, which Compose passes to both the app and LiveKit. LiveKit media uses TCP `7881` and UDP ports `50000-50100`. The S3 API is available at `http://localhost:9000` and its console at `http://localhost:9001`; bucket `pbp-attachments` is created automatically and remains private. Mailpit captures outgoing development email at `http://localhost:8025` and accepts SMTP on port `1025`. PostgreSQL, Redis, and object data use named volumes. Their host ports are bound to `127.0.0.1`, so database, cache, and object-store services are not reachable from other machines. Development credentials in `.env.example` are local only; change them before exposing services.
 
 The attachment API supports images, video, audio, and common document types. `POST /api/attachments/uploads` returns a short-lived signed multipart POST form and records a pending attachment scoped to a friend conversation or server text channel. Upload using all returned `upload.fields` plus the `file` form field, then call `POST /api/attachments/:attachmentId/complete`. Authorized participants can list metadata and request a temporary download URL at `GET /api/attachments/:attachmentId/download-url`. Every returned attachment also includes `previewUrl`, a stable public capability URL at `GET /api/attachments/:attachmentId/preview` that redirects to a short-lived inline S3 URL; this can be used directly in `<img>`, `<video>`, or `<audio>` elements. The preview URL requires no session, so anyone who possesses it can view the attachment; do not use it for secrets. The server validates the destination, declared type, size, membership, and the uploaded object's magic bytes before making it available. Configure `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` in `.env` to target a different S3-compatible provider.
 
