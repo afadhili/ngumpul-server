@@ -85,8 +85,9 @@ services:
             S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-pbpminio}
             S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-pbp-minio-local-secret-change-me-32}
             S3_AUTO_CREATE_BUCKET: ${S3_AUTO_CREATE_BUCKET:-true}
-        ports:
-            - "127.0.0.1:3000:3000"
+        # Intentionally no host port: Cloudflare Tunnel reaches the app at
+        # app:3000 over the Compose network. Publishing 3000 here caused a
+        # boot-time conflict with another local project and left the app down.
         depends_on:
             db:
                 condition: service_healthy

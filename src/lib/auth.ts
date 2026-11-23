@@ -8,6 +8,7 @@ import { sendVerificationOtpEmail } from "../services/email.service";
 
 const secret = process.env.BETTER_AUTH_SECRET;
 const baseURL = process.env.BETTER_AUTH_URL;
+const usesHttps = baseURL?.startsWith("https://") ?? false;
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -27,6 +28,13 @@ const authOptions: BetterAuthOptions = {
     secret,
     baseURL,
     trustedOrigins: process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [],
+    advanced: {
+        useSecureCookies: usesHttps,
+        defaultCookieAttributes: {
+            sameSite: usesHttps ? "none" : "lax",
+            secure: usesHttps,
+        },
+    },
     database: drizzleAdapter(db, {
         provider: "pg",
         schema,

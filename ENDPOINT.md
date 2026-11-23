@@ -49,6 +49,8 @@ Application endpoints use the Better Auth **session cookie**.
 
 - Browser clients must send credentials, for example `fetch(..., { credentials: "include" })`.
 - The cookie is set by Better Auth sign-in/OTP success responses.
+- When `BETTER_AUTH_URL` uses `https`, the session cookie is `Secure; SameSite=None` so a frontend on a different site can send it. The API must also list that exact frontend origin in `CORS_ORIGIN`.
+- `SameSite=None` still requires the browser to allow third-party cookies. If the frontend is cross-site and the browser blocks them, serve the frontend and API on the same site (for example `app.example.com` and `api.example.com`) or proxy the API through the frontend origin.
 - Native/non-browser clients can send the cookie in a `Cookie` header.
 - Bearer-token authentication is **not enabled** in this deployment.
 - A missing or expired session returns `401 { "error": "Unauthorized" }` on application endpoints.

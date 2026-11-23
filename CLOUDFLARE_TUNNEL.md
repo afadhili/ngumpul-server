@@ -140,7 +140,8 @@ Notes:
 - `BETTER_AUTH_URL` must be the exact public API origin, including `https`, so cookies and OAuth callbacks are correct.
 - The browser must be able to reach `storage.afadhili.my.id` for presigned attachment URLs and previews.
 - If the frontend is on a different origin, it must send cookies with `credentials: "include"`.
-- For local development, keep using `http://localhost:3000` and `ws://localhost:7880`; use a separate `.env` or override when switching between local and public URLs.
+- Because the public API is HTTPS, Better Auth sets the session cookie with `Secure; SameSite=None`, which is required when the frontend is on a different site. The browser must still allow third-party cookies; if it does not, host the frontend on the same site as the API (for example `app.afadhili.my.id`) or proxy `/api` through the frontend origin.
+- For local development, run the API with `pnpm dev` on `http://localhost:3000` and use `ws://localhost:7880`; the Compose app intentionally has no published host port because Cloudflare reaches it at `app:3000`. Add a local Compose override if you need to expose the container port.
 
 ## Security notes
 
@@ -166,7 +167,7 @@ Cloudflare Spectrum can proxy UDP/TCP, but it is a paid product and is not part 
 
 | Symptom | Check |
 | --- | --- |
-| `502 Bad Gateway` | Hostname service is wrong, or the target container is not running. Use `docker compose ps`. |
+| `502 Bad Gateway` | Hostname service is wrong, or the target container is not running. Use `docker compose ps -a` and `docker compose logs app`. If the app exited with a port-3000 conflict, make sure no local override publishes `3000`; the app itself has no host port. |
 | `cloudflared` exits immediately | `cloudflared/config.yml` or the credentials JSON is missing/unreadable. Check `docker compose logs cloudflared`. |
 | Tunnel shows no connections | The credentials file or tunnel UUID in `config.yml` is wrong. Re-run `cloudflared tunnel list`. |
 | Login/cookie failures | `BETTER_AUTH_URL` must match the public API URL exactly. |
