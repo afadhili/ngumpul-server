@@ -37,8 +37,10 @@ async function handleGraphqlRequest(c: Context) {
         context: async () => ({ userId }),
     });
 
-    const responseHeaders = new Headers();
-    result.headers.forEach((value, key) => responseHeaders.set(key, value));
+    const responseHeaders: Record<string, string> = {};
+    result.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+    });
     const status = (result.status ?? 200) as ContentfulStatusCode;
 
     if (result.body.kind === "complete") {
