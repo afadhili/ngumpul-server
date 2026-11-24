@@ -16,7 +16,7 @@ import {
     removeFriend,
     sendFriendRequest,
 } from "../controllers/friend.controller";
-import { getProfile, searchUsers, updateProfile } from "../controllers/profile.controller";
+import { checkUsernameAvailability, getProfile, searchUsers, updateProfile } from "../controllers/profile.controller";
 import { getCurrentUser } from "../controllers/user.controller";
 import {
     blockUser,
@@ -67,6 +67,7 @@ import { getMyPreferences, updateMyPreferences } from "../controllers/user-prefe
 const apiRoutes = new Hono();
 apiRoutes.get("/me", getCurrentUser);
 apiRoutes.get("/profile", getProfile);
+apiRoutes.get("/profile/username-availability", checkUsernameAvailability);
 apiRoutes.put("/profile", updateProfile);
 apiRoutes.get("/users/search", searchUsers);
 apiRoutes.get("/blocks", listBlockedUsers);

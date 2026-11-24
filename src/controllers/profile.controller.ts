@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, ilike, isNull, or } from "drizzle-orm";
+import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
@@ -14,6 +14,9 @@ type ProfileInput = {
     avatar?: unknown;
     isPublic?: unknown;
 };
+
+const usernamePattern = /^[a-z0-9_]{3,24}$/;
+const invalidUsername = "Username must be 3–24 characters using letters, numbers, or underscores";
 
 export async function getProfile(c: Context) {
     const userId = await getSessionUserId(c);
@@ -41,6 +44,21 @@ export async function getProfile(c: Context) {
     return result ? c.json({ profile: result }) : c.json({ error: "User not found" }, 404);
 }
 
+export async function checkUsernameAvailability(c: Context) {
+    const userId = await getSessionUserId(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+    const username = c.req.query("username")?.trim().toLowerCase() ?? "";
+    if (!usernamePattern.test(username)) return c.json({ error: invalidUsername }, 400);
+
+    const [match] = await db.select({ id: user.id }).from(user)
+        .where(eq(sql<string>`lower(${user.username})`, username))
+        .limit(1);
+
+    c.header("Cache-Control", "no-store");
+    return c.json({ username, available: !match || match.id === userId });
+}
+
 export async function updateProfile(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
@@ -53,8 +71,8 @@ export async function updateProfile(c: Context) {
     }
 
     const username = typeof input.username === "string" ? input.username.trim().toLowerCase() : "";
-    if (!/^[a-z0-9_]{3,24}$/.test(username)) {
-        return c.json({ error: "Username must be 3–24 characters using letters, numbers, or underscores" }, 400);
+    if (!usernamePattern.test(username)) {
+        return c.json({ error: invalidUsername }, 400);
     }
 
     const [current] = await db.select().from(profile).where(eq(profile.userId, userId)).limit(1);
