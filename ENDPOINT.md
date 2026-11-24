@@ -5,6 +5,7 @@ Complete endpoint and data contract for the ngumpul backend (project directory: 
 This document covers:
 
 - the application REST API under `/api`
+- the Drizzle-generated GraphQL API under `/graphql`
 - Better Auth endpoints under `/api/auth`
 - the realtime WebSocket API under `/ws`
 - the LiveKit voice integration
@@ -20,6 +21,7 @@ The source of truth is the code in `src/routes`, `src/controllers`, `src/lib`, a
 | --- | --- | --- |
 | REST API | `http://localhost:3000` | JSON over HTTP |
 | Health | `http://localhost:3000/health` | Public |
+| GraphQL | `http://localhost:3000/graphql` | Apollo Server; authenticated session required |
 | Better Auth | `http://localhost:3000/api/auth` | Cookie session endpoints |
 | App WebSocket | `ws://localhost:3000/ws/dm?peerId=...` | Direct-message events |
 | App WebSocket | `ws://localhost:3000/ws/channel?channelId=...` | Server text-channel events |
@@ -33,6 +35,7 @@ The API is mounted as follows:
 
 ```text
 /health
+/graphql
 /api/auth/*
 /api/*
 /api/servers/*
@@ -190,6 +193,7 @@ Better Auth routes usually return:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Health check |
+| `GET`, `POST` | `/graphql` | Drizzle-generated GraphQL schema served by Apollo Server (Auth: required) |
 | `GET` | `/api/me` | Current Better Auth user |
 | `GET` | `/api/profile` | Current profile |
 | `PUT` | `/api/profile` | Update username/profile fields |
@@ -359,6 +363,49 @@ All paths below are relative to `/api/auth`.
 | `PATCH` | `/api/servers/:serverId/channels/:channelId/voice-participants/:identity` | Mute or disconnect a participant |
 
 LiveKit's own signaling/media endpoints are served by LiveKit, not by this REST API. See section 8.
+
+### 3.5 GraphQL endpoint
+
+The GraphQL endpoint is served by Apollo Server at `POST /graphql` and `GET /graphql`.
+It uses `buildSchema(db)` from `drizzle-graphql`, so the available GraphQL types,
+queries, and mutations are generated from the Drizzle schema configured in
+`src/db/relations.ts`. Consult the generated schema (Apollo Server's schema
+introspection) for exact operation and field names as that schema changes with
+the database model.
+
+Authentication is required for every GraphQL request. Send the Better Auth
+session cookie or `Authorization: Bearer <session-token>` using the conventions
+in section 2.1. Requests without a valid session return HTTP `401` with a
+GraphQL-shaped error response:
+
+```json
+{ "errors": [{ "message": "Unauthorized" }] }
+```
+
+`buildSchema(db)` exposes the configured Drizzle schema's generated queries and
+mutations. The session check only establishes that the caller is signed in; it
+does not add per-row ownership or role checks to generated operations.
+
+POST requests use a JSON body with the standard GraphQL request shape:
+
+```http
+POST /graphql
+Content-Type: application/json
+Cookie: better-auth.session_token=...
+
+{
+  "query": "query { ... }",
+  "variables": {},
+  "operationName": "OptionalOperationName"
+}
+```
+
+GET requests pass `query`, `variables`, and `operationName` as URL query
+parameters. The request body limit is 1 MiB; configured CORS origins may use
+credentials and the `Content-Type` and `Authorization` headers. GraphQL errors
+use Apollo's standard `{ "errors": [...] }` response shape; successful
+operations return `{ "data": ... }` (and may also include `errors` for partial
+results).
 
 ---
 

@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { apiRoutes } from "./routes/api.routes";
 import { authRoutes } from "./routes/auth.routes";
+import { handleGraphqlRequest } from "./routes/graphql.routes";
 import { healthRoutes } from "./routes/health.routes";
 import { serverRoutes } from "./routes/server.routes";
 
@@ -22,6 +23,14 @@ app.use(
 );
 
 app.use(
+    "/graphql",
+    bodyLimit({
+        maxSize: oneMiB,
+        onError: c => c.json({ errors: [{ message: "Request body must not exceed 1 MiB" }] }, 413),
+    }),
+);
+
+app.use(
     "/api/*",
     cors({
         origin: allowedOrigin ? [allowedOrigin] : [],
@@ -33,11 +42,18 @@ app.use(
     }),
 );
 
-// The OAuth popup hands its result to window.opener. Hono's secureHeaders
-// defaults to Cross-Origin-Opener-Policy: same-origin, which severs that
-// opener relationship when the popup starts or returns from Google. Those two
-// short-lived auth documents therefore opt out; every other API response keeps
-// the strict default.
+app.use(
+    "/graphql",
+    cors({
+        origin: allowedOrigin ? [allowedOrigin] : [],
+        allowHeaders: ["Content-Type", "Authorization"],
+        allowMethods: ["GET", "POST", "OPTIONS"],
+        exposeHeaders: ["Content-Length"],
+        maxAge: 600,
+        credentials: true,
+    }),
+);
+
 app.use("/api/auth/oauth-popup/*", async (c, next) => {
     await next();
     c.header("Cross-Origin-Opener-Policy", "unsafe-none");
@@ -61,6 +77,7 @@ app.use("/api/auth/callback/google", async (c, next) => {
 app.route("/", healthRoutes);
 app.route("/api/auth", authRoutes);
 app.route("/api", apiRoutes);
+app.all("/graphql", handleGraphqlRequest);
 app.route("/api/servers", serverRoutes);
 
 export { app };

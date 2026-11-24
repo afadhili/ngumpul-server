@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { pool } from "./db/index";
 import { app } from "./app";
+import { stopGraphqlServer } from "./routes/graphql.routes";
 import { attachWebSocket } from "./controllers/websocket.controller";
 import { closeEventService, connectEventService } from "./services/event.service";
 import { closeRealtimeService, connectRealtimeService } from "./services/realtime.service";
@@ -31,7 +32,7 @@ const shutdown = async () => {
     closeWebSocketServer();
     stopBackgroundWorker();
     server.close();
-    await Promise.all([closeRealtimeService(), closeEventService(), pool.end()]);
+    await Promise.all([closeRealtimeService(), closeEventService(), stopGraphqlServer(), pool.end()]);
     process.exit(0);
 };
 
