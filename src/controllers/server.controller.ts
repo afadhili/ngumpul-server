@@ -6,6 +6,7 @@ import { db } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { profile, user } from "../db/schema/auth";
 import { communityServer, serverChannel, serverInvite, serverMember } from "../db/schema/community";
+import { getServerRole } from "../lib/channel-access";
 import { isUniqueViolation } from "../lib/db-errors";
 import type { ChannelSummary, MemberSummary, ServerSummary } from "../models/realtime-event";
 import { getSessionUserId } from "../lib/request-auth";
@@ -554,14 +555,6 @@ async function deleteChannelAttachments(channelIds: string[]) {
     if (files.length > 0) {
         await db.delete(attachment).where(inArray(attachment.id, files.map(file => file.id)));
     }
-}
-
-async function getServerRole(serverId: string, userId: string): Promise<ServerRole | null> {
-    const [membership] = await db.select({ role: serverMember.role }).from(serverMember)
-        .where(and(eq(serverMember.serverId, serverId), eq(serverMember.userId, userId))).limit(1);
-    return membership?.role === "owner" || membership?.role === "admin" || membership?.role === "member"
-        ? membership.role
-        : null;
 }
 
 async function readJson(c: Context): Promise<Record<string, unknown> | null> {

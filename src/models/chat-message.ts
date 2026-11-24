@@ -1,8 +1,21 @@
+import type { PollSummary } from "./realtime-event";
+
 export type MessageReaction = {
     emoji: string;
     count: number;
     userIds: string[];
     me: boolean;
+};
+
+export type MessageLocation = {
+    lat: number;
+    lng: number;
+    label: string | null;
+};
+
+export type MessageMention = {
+    userId: string;
+    username: string | null;
 };
 
 export type DirectMessageRecord = {
@@ -17,9 +30,17 @@ export type DirectMessageRecord = {
     readAt: string | null;
     editedAt: string | null;
     deletedAt: string | null;
+    forwardedFromId: string | null;
+    location: MessageLocation | null;
+    attachmentDurationMs: number | null;
+    expiresAt: string | null;
+    encrypted: boolean;
     createdAt: string;
     updatedAt: string;
     reactions: MessageReaction[];
+    mentions: MessageMention[];
+    poll: PollSummary | null;
+    pinned: boolean;
 };
 
 export type DirectMessageEvent = {
@@ -39,9 +60,18 @@ export type ChannelMessageRecord = {
     replyToMessageId: string | null;
     editedAt: string | null;
     deletedAt: string | null;
+    forwardedFromId: string | null;
+    location: MessageLocation | null;
+    attachmentDurationMs: number | null;
+    expiresAt: string | null;
+    encrypted: boolean;
+    isAnnouncement: boolean;
     createdAt: string;
     updatedAt: string;
     reactions: MessageReaction[];
+    mentions: MessageMention[];
+    poll: PollSummary | null;
+    pinned: boolean;
 };
 
 export type ChannelMessageEvent = {

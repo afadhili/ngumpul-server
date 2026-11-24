@@ -1,17 +1,30 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, lt, lte, notExists, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, lte, notExists, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { directMessage, directMessageHidden } from "../db/schema/direct-message";
 import { directMessageReaction } from "../db/schema/reaction";
 import { canAccessDirectConversation } from "../lib/direct-conversation";
+import { directConversationKey } from "../lib/conversation-key";
+import { parseMessageInput } from "../lib/message-input";
 import { getSessionUserId } from "../lib/request-auth";
 import type { DirectMessageRecord } from "../models/chat-message";
+import { allowsNotification, disappearingSecondsFor, getConversationPreference } from "../services/conversation-preference.service";
+import { loadDirectMessageMeta, metaFor, type MessageMeta } from "../services/message-meta.service";
+import {
+    createPollForMessage,
+    deleteMessageSideData,
+    expiresAtFrom,
+    resolveForwardSource,
+    saveMentions,
+} from "../services/message-support.service";
+import { createDirectMessage, toDirectRecord } from "../services/message-create.service";
 import { deleteObject } from "../services/object-storage.service";
-import { sendNotification } from "../services/notification.service";
-import { directReactions, loadDirectReactions } from "../services/reaction.service";
 import { publishChatMessage } from "../services/realtime.service";
+import { extractMentionUsernames } from "../lib/mentions";
+
+const noMeta: MessageMeta = { reactions: [], mentions: [], poll: null, pinned: false };
 
 export async function listDirectMessages(c: Context) {
     const userId = await getSessionUserId(c);
@@ -41,18 +54,18 @@ export async function listDirectMessages(c: Context) {
         conversation,
         notExists(db.select({ id: directMessageHidden.messageId }).from(directMessageHidden)
             .where(and(eq(directMessageHidden.messageId, directMessage.id), eq(directMessageHidden.userId, userId)))),
+        or(isNull(directMessage.expiresAt), gt(directMessage.expiresAt, new Date())),
         ...(cursorCondition ? [cursorCondition] : []),
     )).orderBy(desc(sql`date_trunc('milliseconds', ${directMessage.createdAt})`), desc(directMessage.id)).limit(rawLimit);
     const replyIds = [...new Set(rows.map(row => row.replyToMessageId).filter((id): id is string => Boolean(id)))];
-    const allIds = [...rows.map(row => row.id), ...replyIds];
-    const reactionMap = await loadDirectReactions(allIds, userId);
     const replyRows = replyIds.length
         ? await db.select().from(directMessage).where(inArray(directMessage.id, replyIds))
         : [];
-    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, reactionMap.get(row.id) ?? [])]));
+    const metaMap = await loadDirectMessageMeta([...rows, ...replyRows], userId);
+    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, metaFor(metaMap, row.id))]));
     const nextCursor = rows.length === rawLimit ? rows[rows.length - 1]?.id ?? null : null;
     const messages = rows.reverse().map(row => ({
-        ...toPublicMessage(row, reactionMap.get(row.id) ?? []),
+        ...toPublicMessage(row, metaFor(metaMap, row.id)),
         replyTo: row.replyToMessageId ? replyById.get(row.replyToMessageId) ?? null : null,
     }));
     return c.json({ messages, nextCursor });
@@ -65,56 +78,11 @@ export async function sendDirectMessage(c: Context) {
     if (!await canAccessDirectConversation(userId, peerId)) return c.json({ error: "You do not have access to this conversation" }, 403);
     const body = await readJson(c);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-    const text = typeof body.text === "string" ? body.text.trim() || null : null;
-    if (body.text !== undefined && body.text !== null && typeof body.text !== "string") return c.json({ error: "text must be a string" }, 400);
-    if (text && text.length > 4000) return c.json({ error: "text must contain at most 4000 characters" }, 400);
-    const attachmentId = body.attachmentId === undefined || body.attachmentId === null
-        ? null
-        : typeof body.attachmentId === "string" ? body.attachmentId : "";
-    if (attachmentId === "") return c.json({ error: "attachmentId must be an attachment ID" }, 400);
-    if (!text && !attachmentId) return c.json({ error: "A text message or attachment is required" }, 400);
-    if (attachmentId) {
-        const [item] = await db.select({ id: attachment.id }).from(attachment).where(and(
-            eq(attachment.id, attachmentId),
-            eq(attachment.uploaderId, userId),
-            eq(attachment.targetType, "direct"),
-            eq(attachment.targetId, peerId),
-            eq(attachment.status, "ready"),
-        )).limit(1);
-        if (!item) return c.json({ error: "Ready attachment not found for this conversation" }, 404);
-    }
-    const replyToId = body.replyToMessageId === undefined || body.replyToMessageId === null
-        ? null
-        : typeof body.replyToMessageId === "string" ? body.replyToMessageId : "";
-    if (replyToId === "") return c.json({ error: "replyToMessageId must be a message ID" }, 400);
-
-    let replyTo = null;
-    if (replyToId) {
-        const [parent] = await db.select().from(directMessage).where(and(
-            eq(directMessage.id, replyToId),
-            or(
-                and(eq(directMessage.senderId, userId), eq(directMessage.recipientId, peerId)),
-                and(eq(directMessage.senderId, peerId), eq(directMessage.recipientId, userId)),
-            ),
-        )).limit(1);
-        if (!parent) return c.json({ error: "Reply target not found in this conversation" }, 404);
-        replyTo = toPublicMessage(parent, await directReactions(parent.id, userId));
-    }
-
-    const [row] = await db.insert(directMessage).values({
-        id: randomUUID(), senderId: userId, recipientId: peerId, text, attachmentId, replyToMessageId: replyToId,
-    }).returning();
-    const message = toPublicMessage(row, []);
-    await emitDirectMessage("created", message);
-    await sendNotification({
-        recipients: [peerId],
-        kind: "direct_message",
-        title: "Pesan langsung baru",
-        body: text ? (text.length > 120 ? `${text.slice(0, 117)}...` : text) : "Mengirim lampiran",
-        messageId: message.id,
-        actorId: userId,
-    });
-    return c.json({ message: { ...message, replyTo } }, 201);
+    const parsed = parseMessageInput(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, parsed.status);
+    const result = await createDirectMessage(userId, peerId, parsed.value);
+    if (!result.ok) return c.json({ error: result.error }, result.status);
+    return c.json({ message: { ...result.message, replyTo: result.replyTo } }, 201);
 }
 
 export async function editDirectMessage(c: Context) {
@@ -133,7 +101,7 @@ export async function editDirectMessage(c: Context) {
     const [updated] = await db.update(directMessage).set({ text, editedAt: now, updatedAt: now })
         .where(and(eq(directMessage.id, messageId), eq(directMessage.senderId, userId), isNull(directMessage.deletedAt))).returning();
     if (!updated) return c.json({ error: "Message not found" }, 404);
-    const message = toPublicMessage(updated, await directReactions(updated.id, userId));
+    const message = toPublicMessage(updated, metaFor(await loadDirectMessageMeta([updated], userId), updated.id));
     await emitDirectMessage("updated", message);
     return c.json({ message });
 }
@@ -173,8 +141,9 @@ export async function deleteDirectMessage(c: Context) {
         .where(and(eq(directMessage.id, messageId), isNull(directMessage.deletedAt))).returning();
     if (deleted) {
         await db.delete(directMessageReaction).where(eq(directMessageReaction.messageId, messageId));
+        await deleteMessageSideData("direct", messageId);
         if (current.attachmentId) await db.delete(attachment).where(eq(attachment.id, current.attachmentId));
-        await emitDirectMessage("deleted", toPublicMessage(deleted, []));
+        await emitDirectMessage("deleted", toPublicMessage(deleted, { ...noMeta, reactions: [] }));
     }
     return c.body(null, 204);
 }
@@ -206,28 +175,13 @@ export async function markDirectMessageReceipt(c: Context) {
         .returning();
     const markerUpdated = updated.find(message => message.id === marker.id);
     const markerRecord = markerUpdated ?? marker;
-    const record = toPublicMessage(markerRecord, await directReactions(markerRecord.id, userId));
+    const record = toPublicMessage(markerRecord, metaFor(await loadDirectMessageMeta([markerRecord], userId), markerRecord.id));
     await emitDirectMessage("receipt", record);
     return c.json({ status: record.status, upToMessageId: marker.id, updatedCount: updated.length });
 }
 
-function toPublicMessage(row: typeof directMessage.$inferSelect, reactions: DirectMessageRecord["reactions"] = []): DirectMessageRecord {
-    return {
-        id: row.id,
-        senderId: row.senderId,
-        recipientId: row.recipientId,
-        text: row.text,
-        attachmentId: row.attachmentId,
-        replyToMessageId: row.replyToMessageId,
-        status: row.status as DirectMessageRecord["status"],
-        deliveredAt: row.deliveredAt?.toISOString() ?? null,
-        readAt: row.readAt?.toISOString() ?? null,
-        editedAt: row.editedAt?.toISOString() ?? null,
-        deletedAt: row.deletedAt?.toISOString() ?? null,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-        reactions,
-    };
+export function toPublicMessage(row: typeof directMessage.$inferSelect, meta: MessageMeta): DirectMessageRecord {
+    return toDirectRecord(row, meta);
 }
 
 export async function emitDirectMessage(event: "created" | "updated" | "deleted" | "receipt", message: DirectMessageRecord) {
@@ -241,6 +195,10 @@ export async function emitDirectMessage(event: "created" | "updated" | "deleted"
     } catch (error) {
         console.error("Unable to publish direct message event:", error);
     }
+}
+
+export function directMessageTarget(senderId: string, recipientId: string) {
+    return directConversationKey(senderId, recipientId);
 }
 
 async function readJson(c: Context): Promise<Record<string, unknown> | null> {

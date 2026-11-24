@@ -1,0 +1,145 @@
+{
+  "type": "diff",
+  "version": "10",
+  "dialect": "postgres",
+  "id": "e08774e8-2b8d-4712-be90-1af9681802f5",
+  "prevIds": [
+    "d005fbab-ddec-4ba9-b8fd-22bd77527780"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "channel_message",
+        "has_poll"
+      ],
+      "writes": [
+        "s|col|public.channel_message.has_poll",
+        "n|col|public.channel_message.has_poll",
+        "e|col|public.channel_message.has_poll"
+      ],
+      "reads": [
+        "n|tbl|public.channel_message",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "direct_message",
+        "has_poll"
+      ],
+      "writes": [
+        "s|col|public.direct_message.has_poll",
+        "n|col|public.direct_message.has_poll",
+        "e|col|public.direct_message.has_poll"
+      ],
+      "reads": [
+        "n|tbl|public.direct_message",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "direct_message"
+      ],
+      "writes": [
+        "s|ck|public.direct_message.direct_message_content_present"
+      ],
+      "reads": [
+        "n|tbl|public.direct_message",
+        "n|sch|public",
+        "n|col|public.direct_message.text",
+        "n|col|public.direct_message.attachment_id",
+        "n|col|public.direct_message.deleted_at",
+        "n|col|public.direct_message.location_lat",
+        "n|col|public.direct_message.has_poll",
+        "e|col|public.direct_message.text",
+        "e|col|public.direct_message.attachment_id",
+        "e|col|public.direct_message.deleted_at",
+        "e|col|public.direct_message.location_lat"
+      ],
+      "sqlHash": "a0c323e7b5ccacc5"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "channel_message"
+      ],
+      "writes": [
+        "s|ck|public.channel_message.channel_message_content_present"
+      ],
+      "reads": [
+        "n|tbl|public.channel_message",
+        "n|sch|public",
+        "n|col|public.channel_message.text",
+        "n|col|public.channel_message.attachment_id",
+        "n|col|public.channel_message.deleted_at",
+        "n|col|public.channel_message.location_lat",
+        "n|col|public.channel_message.has_poll",
+        "e|col|public.channel_message.text",
+        "e|col|public.channel_message.attachment_id",
+        "e|col|public.channel_message.deleted_at",
+        "e|col|public.channel_message.location_lat"
+      ],
+      "sqlHash": "f2404e620c37738b"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "channel_message",
+        "name": "has_poll",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_message",
+        "name": "has_poll",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"direct_message\",\"direct_message_content_present\"]",
+      "set": {
+        "value": "(\"text\" IS NOT NULL AND length(\"text\") > 0) OR \"attachment_id\" IS NOT NULL OR \"deleted_at\" IS NOT NULL OR \"location_lat\" IS NOT NULL OR \"has_poll\""
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"channel_message\",\"channel_message_content_present\"]",
+      "set": {
+        "value": "(\"text\" IS NOT NULL AND length(\"text\") > 0) OR \"attachment_id\" IS NOT NULL OR \"deleted_at\" IS NOT NULL OR \"location_lat\" IS NOT NULL OR \"has_poll\""
+      }
+    }
+  ]
+}

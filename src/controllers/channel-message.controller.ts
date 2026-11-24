@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull, lt, lte, notExists, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { attachment } from "../db/schema/attachment";
@@ -7,13 +7,29 @@ import { channelMessage, channelMessageHidden } from "../db/schema/channel-messa
 import { channelMessageReaction } from "../db/schema/reaction";
 import { getChannelAccess, isServerManager } from "../lib/channel-access";
 import { isUniqueViolation } from "../lib/db-errors";
+import { extractMentionUsernames } from "../lib/mentions";
+import { parseMessageInput } from "../lib/message-input";
 import { getSessionUserId } from "../lib/request-auth";
 import type { ChannelMessageRecord } from "../models/chat-message";
+import {
+    allowsNotification,
+    disappearingSecondsFor,
+    loadPreferencesForTarget,
+} from "../services/conversation-preference.service";
+import { loadChannelMessageMeta, metaFor, type MessageMeta } from "../services/message-meta.service";
+import {
+    createPollForMessage,
+    deleteMessageSideData,
+    expiresAtFrom,
+    resolveForwardSource,
+    saveMentions,
+} from "../services/message-support.service";
+import { createChannelMessage, toChannelRecord } from "../services/message-create.service";
 import { deleteObject } from "../services/object-storage.service";
-import { sendNotification } from "../services/notification.service";
-import { channelReactions, loadChannelReactions } from "../services/reaction.service";
 import { publishChatMessage } from "../services/realtime.service";
 import { getServerMemberIds } from "../services/server-event.service";
+
+const noMeta: MessageMeta = { reactions: [], mentions: [], poll: null, pinned: false };
 
 export async function listChannelMessages(c: Context) {
     const userId = await getSessionUserId(c);
@@ -45,22 +61,22 @@ export async function listChannelMessages(c: Context) {
         eq(channelMessage.channelId, channelId),
         notExists(db.select({ id: channelMessageHidden.messageId }).from(channelMessageHidden)
             .where(and(eq(channelMessageHidden.messageId, channelMessage.id), eq(channelMessageHidden.userId, userId)))),
+        or(isNull(channelMessage.expiresAt), gt(channelMessage.expiresAt, new Date())),
         ...(cursorCondition ? [cursorCondition] : []),
     )).orderBy(desc(sql`date_trunc('milliseconds', ${channelMessage.createdAt})`), desc(channelMessage.id)).limit(rawLimit);
 
     const replyIds = [...new Set(rows.map(row => row.replyToMessageId).filter((id): id is string => Boolean(id)))];
-    const allIds = [...rows.map(row => row.id), ...replyIds];
-    const reactionMap = await loadChannelReactions(allIds, userId);
     const replyRows = replyIds.length
         ? await db.select().from(channelMessage).where(and(
             inArray(channelMessage.id, replyIds),
             eq(channelMessage.channelId, channelId),
         ))
         : [];
-    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, reactionMap.get(row.id) ?? [])]));
+    const metaMap = await loadChannelMessageMeta([...rows, ...replyRows], userId);
+    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, metaFor(metaMap, row.id))]));
     const nextCursor = rows.length === rawLimit ? rows[rows.length - 1]?.id ?? null : null;
     const messages = rows.reverse().map(row => ({
-        ...toPublicMessage(row, reactionMap.get(row.id) ?? []),
+        ...toPublicMessage(row, metaFor(metaMap, row.id)),
         replyTo: row.replyToMessageId ? replyById.get(row.replyToMessageId) ?? null : null,
     }));
     return c.json({ messages, nextCursor });
@@ -76,74 +92,13 @@ export async function sendChannelMessage(c: Context) {
 
     const body = await readJson(c);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-    const text = typeof body.text === "string" ? body.text.trim() || null : null;
-    if (body.text !== undefined && body.text !== null && typeof body.text !== "string") {
-        return c.json({ error: "text must be a string" }, 400);
-    }
-    if (text && text.length > 4000) return c.json({ error: "text must contain at most 4000 characters" }, 400);
-
-    const attachmentId = body.attachmentId === undefined || body.attachmentId === null
-        ? null
-        : typeof body.attachmentId === "string" ? body.attachmentId : "";
-    if (attachmentId === "") return c.json({ error: "attachmentId must be an attachment ID" }, 400);
-    if (!text && !attachmentId) return c.json({ error: "A text message or attachment is required" }, 400);
-    if (attachmentId) {
-        const [item] = await db.select({ id: attachment.id }).from(attachment).where(and(
-            eq(attachment.id, attachmentId),
-            eq(attachment.uploaderId, userId),
-            eq(attachment.targetType, "channel"),
-            eq(attachment.targetId, channelId),
-            eq(attachment.status, "ready"),
-        )).limit(1);
-        if (!item) return c.json({ error: "Ready attachment not found for this channel" }, 404);
-    }
-
-    const replyToId = body.replyToMessageId === undefined || body.replyToMessageId === null
-        ? null
-        : typeof body.replyToMessageId === "string" ? body.replyToMessageId : "";
-    if (replyToId === "") return c.json({ error: "replyToMessageId must be a message ID" }, 400);
-    let replyTo = null;
-    if (replyToId) {
-        const [parent] = await db.select().from(channelMessage).where(and(
-            eq(channelMessage.id, replyToId),
-            eq(channelMessage.channelId, channelId),
-        )).limit(1);
-        if (!parent) return c.json({ error: "Reply target not found in this channel" }, 404);
-        replyTo = toPublicMessage(parent, await channelReactions(parent.id, userId));
-    }
-
-    let row: typeof channelMessage.$inferSelect;
-    try {
-        [row] = await db.insert(channelMessage).values({
-            id: randomUUID(),
-            channelId,
-            senderId: userId,
-            text,
-            attachmentId,
-            replyToMessageId: replyToId,
-        }).returning();
-    } catch (error) {
-        if (isUniqueViolation(error)) {
-            return c.json({ error: "Attachment is already attached to a message" }, 409);
-        }
-        throw error;
-    }
-    const message = toPublicMessage(row, []);
-    await emitChannelMessage("created", access.serverId, message);
-    const recipients = (await getServerMemberIds(access.serverId)).filter(id => id !== userId);
-    if (recipients.length > 0) {
-        await sendNotification({
-            recipients,
-            kind: "channel_message",
-            title: "Pesan channel baru",
-            body: summarizeNotificationBody(text),
-            serverId: access.serverId,
-            channelId,
-            messageId: message.id,
-            actorId: userId,
-        });
-    }
-    return c.json({ message: { ...message, replyTo } }, 201);
+    const parsed = parseMessageInput(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, parsed.status);
+    const result = await createChannelMessage(userId, access, parsed.value, {
+        isAnnouncement: body.isAnnouncement === true,
+    });
+    if (!result.ok) return c.json({ error: result.error }, result.status);
+    return c.json({ message: { ...result.message, replyTo: result.replyTo } }, 201);
 }
 
 export async function editChannelMessage(c: Context) {
@@ -173,7 +128,7 @@ export async function editChannelMessage(c: Context) {
         .where(and(eq(channelMessage.id, messageId), eq(channelMessage.senderId, userId), isNull(channelMessage.deletedAt)))
         .returning();
     if (!updated) return c.json({ error: "Message not found" }, 404);
-    const message = toPublicMessage(updated, await channelReactions(updated.id, userId));
+    const message = toPublicMessage(updated, metaFor(await loadChannelMessageMeta([updated], userId), updated.id));
     await emitChannelMessage("updated", access.serverId, message);
     return c.json({ message });
 }
@@ -225,26 +180,15 @@ export async function deleteChannelMessage(c: Context) {
     }).where(and(eq(channelMessage.id, messageId), isNull(channelMessage.deletedAt))).returning();
     if (deleted) {
         await db.delete(channelMessageReaction).where(eq(channelMessageReaction.messageId, messageId));
+        await deleteMessageSideData("channel", messageId);
         if (current.attachmentId) await db.delete(attachment).where(eq(attachment.id, current.attachmentId));
-        await emitChannelMessage("deleted", access.serverId, toPublicMessage(deleted, []));
+        await emitChannelMessage("deleted", access.serverId, toPublicMessage(deleted, { ...noMeta, reactions: [] }));
     }
     return c.body(null, 204);
 }
 
-function toPublicMessage(row: typeof channelMessage.$inferSelect, reactions: ChannelMessageRecord["reactions"] = []): ChannelMessageRecord {
-    return {
-        id: row.id,
-        channelId: row.channelId,
-        senderId: row.senderId,
-        text: row.text,
-        attachmentId: row.attachmentId,
-        replyToMessageId: row.replyToMessageId,
-        editedAt: row.editedAt?.toISOString() ?? null,
-        deletedAt: row.deletedAt?.toISOString() ?? null,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-        reactions,
-    };
+export function toPublicMessage(row: typeof channelMessage.$inferSelect, meta: MessageMeta): ChannelMessageRecord {
+    return toChannelRecord(row, meta);
 }
 
 export async function emitChannelMessage(

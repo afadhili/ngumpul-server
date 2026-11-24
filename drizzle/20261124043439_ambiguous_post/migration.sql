@@ -1,0 +1,4 @@
+ALTER TABLE "channel_message" ADD COLUMN "has_poll" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "direct_message" ADD COLUMN "has_poll" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "direct_message" DROP CONSTRAINT "direct_message_content_present", ADD CONSTRAINT "direct_message_content_present" CHECK (("text" IS NOT NULL AND length("text") > 0) OR "attachment_id" IS NOT NULL OR "deleted_at" IS NOT NULL OR "location_lat" IS NOT NULL OR "has_poll");--> statement-breakpoint
+ALTER TABLE "channel_message" DROP CONSTRAINT "channel_message_content_present", ADD CONSTRAINT "channel_message_content_present" CHECK (("text" IS NOT NULL AND length("text") > 0) OR "attachment_id" IS NOT NULL OR "deleted_at" IS NOT NULL OR "location_lat" IS NOT NULL OR "has_poll");

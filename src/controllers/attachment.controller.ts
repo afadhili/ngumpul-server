@@ -240,9 +240,19 @@ function toDirectMessageRecord(row: typeof import("../db/schema/direct-message")
         readAt: row.readAt?.toISOString() ?? null,
         editedAt: row.editedAt?.toISOString() ?? null,
         deletedAt: row.deletedAt?.toISOString() ?? null,
+        forwardedFromId: row.forwardedFromId,
+        location: row.locationLat !== null && row.locationLng !== null
+            ? { lat: row.locationLat, lng: row.locationLng, label: row.locationLabel }
+            : null,
+        attachmentDurationMs: row.attachmentDurationMs,
+        expiresAt: row.expiresAt?.toISOString() ?? null,
+        encrypted: row.encrypted,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
         reactions: [],
+        mentions: [],
+        poll: null,
+        pinned: false,
     };
 }
 

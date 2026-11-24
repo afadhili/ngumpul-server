@@ -242,6 +242,58 @@ Better Auth routes usually return:
 | `DELETE` | `/api/servers/:serverId/members/:userId` | Remove a member or leave |
 | `POST` | `/api/servers/:serverId/invites` | Create an invite |
 
+Backlog feature endpoints (documented in section 5A):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/friends/qr` | Create a signed, expiring friend code |
+| `GET` | `/api/friends/qr/:code` | Preview a friend code |
+| `POST` | `/api/friends/qr/claim` | Claim a friend code (creates a pending request) |
+| `GET` | `/api/messages/search` | Search direct messages |
+| `GET` | `/api/messages/search/channels` | Search channel messages across joined servers |
+| `GET` | `/api/servers/:serverId/channels/:channelId/messages/search` | Search one channel |
+| `POST` | `/api/messages/:messageId/forward` | Forward a message |
+| `GET` | `/api/direct-messages/:peerId/pins` | List pinned DMs in a conversation |
+| `POST` | `/api/direct-messages/:messageId/pin` | Pin a DM |
+| `DELETE` | `/api/direct-messages/:messageId/pin` | Unpin a DM |
+| `GET` | `/api/servers/:serverId/channels/:channelId/pins` | List pinned channel messages |
+| `POST` | `/api/servers/:serverId/channels/:channelId/messages/:messageId/pin` | Pin a channel message |
+| `DELETE` | `/api/servers/:serverId/channels/:channelId/messages/:messageId/pin` | Unpin a channel message |
+| `GET` | `/api/polls/:pollId` | Poll summary |
+| `POST` | `/api/polls/:pollId/votes` | Cast or change votes |
+| `DELETE` | `/api/polls/:pollId/votes` | Retract votes |
+| `POST` | `/api/polls/:pollId/close` | Close a poll |
+| `GET` | `/api/drafts` | List drafts |
+| `PUT` | `/api/drafts/:scope/:targetId` | Save (or clear) a draft |
+| `DELETE` | `/api/drafts/:scope/:targetId` | Delete a draft |
+| `GET` | `/api/conversations` | List conversation preferences |
+| `GET` | `/api/conversations/:scope/:targetId` | Read one conversation preference |
+| `PATCH` | `/api/conversations/:scope/:targetId` | Update favorite/archive/mute/disappearing |
+| `GET` | `/api/channels/:channelId/read-state` | Read the caller's channel read state |
+| `PUT` | `/api/channels/:channelId/read-state` | Update read state / mark unread |
+| `GET` | `/api/servers/:serverId/unread` | Per-channel unread counters |
+| `GET` | `/api/scheduled-messages` | List scheduled messages |
+| `POST` | `/api/scheduled-messages` | Schedule a message |
+| `PATCH` | `/api/scheduled-messages/:scheduledMessageId` | Update a pending scheduled message |
+| `DELETE` | `/api/scheduled-messages/:scheduledMessageId` | Cancel a pending scheduled message |
+| `GET` | `/api/notifications` | List persisted notifications |
+| `GET` | `/api/notifications/unread-count` | Unread notification count |
+| `POST` | `/api/notifications/:notificationId/read` | Mark one notification read |
+| `POST` | `/api/notifications/read-all` | Mark all notifications read |
+| `DELETE` | `/api/notifications/:notificationId` | Delete one notification |
+| `DELETE` | `/api/notifications/read` | Delete all read notifications |
+| `GET` | `/api/presence` | Presence of friends |
+| `GET` | `/api/presence/:userId` | Presence of one user |
+| `PUT` | `/api/presence` | Set own presence status |
+| `GET` | `/api/preferences` | Appearance/notification preferences |
+| `PUT` | `/api/preferences` | Update preferences |
+| `GET` | `/api/backup` | Export account data |
+| `POST` | `/api/backup/restore` | Restore a backup |
+| `GET` | `/api/translations/languages` | Supported translation languages |
+| `POST` | `/api/translations` | Translate text |
+| `GET` | `/api/servers/:serverId/channels/:channelId/voice-participants` | LiveKit participant list |
+| `PATCH` | `/api/servers/:serverId/channels/:channelId/voice-participants/:identity` | Mute or disconnect a participant |
+
 ### 3.2 Better Auth REST endpoints
 
 All paths below are relative to `/api/auth`.
@@ -296,12 +348,15 @@ All paths below are relative to `/api/auth`.
 | --- | --- |
 | `ws://HOST/ws/dm?peerId=<userId>` | Direct-message events for the caller and `peerId` |
 | `ws://HOST/ws/channel?channelId=<channelId>` | Events for one server text channel |
+| `ws://HOST/ws/user` | User-scoped events: server lifecycle, notifications, reactions, polls, pins, presence, read state, scheduled messages |
 
 ### 3.4 LiveKit endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/servers/:serverId/channels/:channelId/voice-token` | Issue a LiveKit JWT for a voice channel |
+| `GET` | `/api/servers/:serverId/channels/:channelId/voice-participants` | List LiveKit room participants |
+| `PATCH` | `/api/servers/:serverId/channels/:channelId/voice-participants/:identity` | Mute or disconnect a participant |
 
 LiveKit's own signaling/media endpoints are served by LiveKit, not by this REST API. See section 8.
 
@@ -368,15 +423,23 @@ Returned by `/api/me`, Better Auth responses, and member/user lists.
   "status": "sent",
   "deliveredAt": null,
   "readAt": null,
+  "forwardedFromId": null,
+  "location": null,
+  "attachmentDurationMs": null,
+  "expiresAt": null,
+  "encrypted": false,
   "editedAt": null,
   "deletedAt": null,
   "createdAt": "2026-11-23T14:10:00.000Z",
   "updatedAt": "2026-11-23T14:10:00.000Z",
-  "reactions": []
+  "reactions": [],
+  "mentions": [],
+  "poll": null,
+  "pinned": false
 }
 ```
 
-`status` is `sent`, `delivered`, or `read`. `reactions` is an array of reaction summaries (section 4.8).
+`status` is `sent`, `delivered`, or `read`. `reactions` is an array of reaction summaries (section 4.8). `mentions` is an array of `{userId, username}`, `poll` is a PollSummary (section 5A.5), `pinned` is a boolean, `location` is `{lat, lng, label}` or null, and `expiresAt` is the disappearing-message expiry. Extended message fields are documented in section 5A.1.
 
 List/send responses add a `replyTo` field containing the parent `DirectMessage` or `null`.
 
@@ -390,15 +453,24 @@ List/send responses add a `replyTo` field containing the parent `DirectMessage` 
   "text": "hello channel",
   "attachmentId": null,
   "replyToMessageId": null,
+  "forwardedFromId": null,
+  "location": null,
+  "attachmentDurationMs": null,
+  "expiresAt": null,
+  "encrypted": false,
+  "isAnnouncement": false,
   "editedAt": null,
   "deletedAt": null,
   "createdAt": "2026-11-23T14:12:00.000Z",
   "updatedAt": "2026-11-23T14:12:00.000Z",
-  "reactions": []
+  "reactions": [],
+  "mentions": [],
+  "poll": null,
+  "pinned": false
 }
 ```
 
-List/send responses add `replyTo` (parent `ChannelMessage` or `null`). `reactions` uses the same summaries as DMs (section 4.8).
+List/send responses add `replyTo` (parent `ChannelMessage` or `null`). `reactions` uses the same summaries as DMs (section 4.8). `isAnnouncement` marks announcement posts (owner/admin only).
 
 ### 4.5 Server and ServerChannel
 
@@ -823,6 +895,8 @@ Body:
 | `attachmentId` | string | one of text/attachment | Must be a **ready** attachment owned by the caller with `targetType: "direct"` and `targetId` equal to `peerId` |
 | `replyToMessageId` | string | no | Must be a message in this same conversation |
 
+This endpoint also accepts the extended fields (`forwardedFromId`, `location`, `attachmentDurationMs`, `expiresInSeconds`, `poll`, `encrypted`) documented in section 5A.1.
+
 Response `201`:
 
 ```json
@@ -834,7 +908,7 @@ Response `201`:
 }
 ```
 
-Publishes a direct-message WebSocket `created` event.
+Publishes a direct-message WebSocket `created` event; `mention` notifications are created or suppressed according to the recipient's `message_mention` matches and conversation preferences.
 
 #### `PATCH /api/direct-messages/:messageId`
 
@@ -1219,6 +1293,8 @@ Body:
 | `attachmentId` | string | one of text/attachment | Ready attachment owned by caller, `targetType: "channel"`, `targetId: channelId` |
 | `replyToMessageId` | string | no | Must be in the same channel |
 
+This endpoint also accepts the extended fields (`forwardedFromId`, `location`, `attachmentDurationMs`, `expiresInSeconds`, `poll`, `encrypted`, `isAnnouncement`) documented in section 5A.1. `isAnnouncement: true` requires owner/admin and generates `announcement` notifications for all server members.
+
 Response `201`:
 
 ```json
@@ -1441,6 +1517,782 @@ Channel messages should have their attachments removed through `DELETE /api/serv
 
 ---
 
+## 5A. Backlog feature endpoints
+
+These endpoints complete the `BACKEND_TASKS.md` feature backlog. Every endpoint in this section requires a session (cookie or `Authorization: Bearer <session-token>`) unless marked public, and returns `401 {"error":"Unauthorized"}` without one.
+
+Common conventions:
+
+- `{scope}` is `direct` or `channel`.
+- For `direct` targets (`{targetId}` path segments and `targetId` body fields) the API accepts either the peer user ID or the canonical conversation key `<userA>:<userB>` (the two user IDs sorted and joined by `:`). Stored rows always use the canonical key, and every response returns that canonical form. For `channel` targets the target is the channel ID.
+- `{serverId}` path segments must reference a server the caller is a member of; `{channelId}` must be a **text** channel of that server for message operations, and a **voice** channel for voice participant operations.
+- Errors use the shapes in section 2.8 (`{"error":"..."}`).
+
+### 5A.1 Extended message payloads
+
+`POST /api/direct-messages/:peerId` and `POST /api/servers/:serverId/channels/:channelId/messages` accept the following fields in addition to `text`, `attachmentId`, and `replyToMessageId`:
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `forwardedFromId` | string | ID of a message the caller can read; ≤128 chars |
+| `location` | `{lat, lng, label?}` | `lat` `-90..90`, `lng` `-180..180`, `label` ≤200 chars |
+| `attachmentDurationMs` | integer | Voice/video duration, `1..86,400,000` |
+| `expiresInSeconds` | integer | Disappearing-message TTL, `5..604800`; when omitted the conversation preference `disappearingSeconds` applies |
+| `poll` | object | `{question, options[], allowMultiple?, anonymous?, closesAt?}`; question 1–300 chars, 2–12 options of 1–100 chars, `closesAt` a future ISO date ≤90 days ahead |
+| `encrypted` | boolean | `true` means `text` is an opaque client-side ciphertext envelope; the server stores it verbatim |
+| `isAnnouncement` | boolean | Channel messages only; requires server owner/admin (`403` otherwise) |
+
+A message must contain at least one of `text`, `attachmentId`, `location`, or `poll`, otherwise the API returns `400`.
+
+Message records returned by every message endpoint gained these fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `forwardedFromId` | string or null | Source message ID |
+| `location` | `{lat, lng, label}` or null | Shared location |
+| `attachmentDurationMs` | integer or null | Voice/video clip duration |
+| `expiresAt` | ISO date or null | Disappearing-message expiry |
+| `encrypted` | boolean | Text is a ciphertext envelope |
+| `mentions` | array of `{userId, username}` | Resolved `@username` mentions |
+| `poll` | PollSummary or null | Attached poll |
+| `pinned` | boolean | Whether the message is pinned |
+| `isAnnouncement` | boolean | Channel messages only |
+
+`@username` mentions are resolved against the DM peer (one-to-one conversations) or the server members, stored in `message_mention`, and generate persisted `mention` notifications. Attachment-only pool messages are rejected on forwarding (`400`).
+
+### 5A.2 Forwarding
+
+#### `POST /api/messages/:messageId/forward`
+
+Auth: required. The caller must be able to read the source message and write to the destination.
+
+Body:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `scope` | string | **yes** | `direct` or `channel` |
+| `targetId` | string | **yes** | Peer user ID / conversation key, or channel ID |
+
+The new message copies only `forwardedFromId` (text, location, and attachment are resolved server-side from the source). Responses:
+
+- `201` — `{"message":{...direct or channel message record..., "replyTo":null}}`
+- `400` — source has no forwardable content, or source is attachment-only (`"Messages with attachments cannot be forwarded"`)
+- `403` — caller cannot read the source DM, or the destination DM is not accessible
+- `404` — source message or destination channel not found
+
+### 5A.3 Search
+
+All search endpoints accept the same query string:
+
+| Parameter | Type | Rules |
+| --- | --- | --- |
+| `q` | string | **required**, 1–200 characters; `%`, `_`, `\` are escaped |
+| `senderId` | string | Optional author filter |
+| `before` | ISO date | Optional upper bound on `createdAt` |
+| `after` | ISO date | Optional lower bound on `createdAt` |
+| `hasAttachment` | `true` | Optional; only messages with an attachment |
+| `limit` | integer | `1..50`, default `25` |
+| `peerId` | string | `GET /api/messages/search` only; restricts to one DM conversation |
+
+Searches never return deleted messages and never return messages from conversations or channels the caller cannot read.
+
+#### `GET /api/messages/search`
+
+Searches direct messages across all of the caller's friends (or one peer when `peerId` is supplied).
+
+Response `200`:
+
+```json
+{
+  "messages": [
+    {
+      "id": "...",
+      "conversationId": "<userA>:<userB>",
+      "peer": { "id": "...", "username": "bob", "name": "Bob", "image": null },
+      "senderId": "...",
+      "recipientId": "...",
+      "text": "hello world",
+      "reactions": [],
+      "mentions": [],
+      "poll": null,
+      "pinned": false,
+      "createdAt": "..."
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`403` when `peerId` is supplied but not accessible. Cursor pagination uses the last message ID of the page (`?before=<messageId>` on the message-list endpoint; search itself takes `before` as a date).
+
+#### `GET /api/messages/search/channels`
+
+Searches every text channel of every server the caller belongs to.
+
+Response `200`:
+
+```json
+{
+  "messages": [
+    {
+      "id": "...",
+      "serverId": "...",
+      "channelId": "...",
+      "channelName": "general",
+      "sender": { "id": "...", "username": "alice", "name": "Alice", "image": null },
+      "text": "hello world",
+      "reactions": [],
+      "mentions": [],
+      "poll": null,
+      "pinned": false,
+      "createdAt": "..."
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+#### `GET /api/servers/:serverId/channels/:channelId/messages/search`
+
+Same as above, restricted to one channel. `404` when the caller is not a server member, or the channel is not a text channel of that server.
+
+### 5A.4 Pins
+
+Pins are stored per conversation (`direct` with the canonical conversation key as target) or per channel.
+
+#### `GET /api/direct-messages/:peerId/pins`
+
+Auth: required; caller must have an accessible DM conversation with `peerId`.
+
+Response `200`: `{"messages":[<DirectMessageRecord>]}` — pinned messages in the conversation, newest pin first. `403` when the conversation is not accessible.
+
+#### `POST /api/direct-messages/:messageId/pin`
+
+Pins an existing DM message. The caller must be its sender or recipient. Response `201` on a new pin, `200` when it was already pinned:
+
+```json
+{ "pinned": true, "messageId": "..." }
+```
+
+Errors: `400` missing message ID, `404` message not found or not part of the caller's conversation.
+
+#### `DELETE /api/direct-messages/:messageId/pin`
+
+Unpins. `204` on success, `404` when there was no pin.
+
+#### `GET /api/servers/:serverId/channels/:channelId/pins`
+
+Auth: server member and text channel. Response `200`: `{"messages":[<ChannelMessageRecord>]}`. `404` when access is denied.
+
+#### `POST /api/servers/:serverId/channels/:channelId/messages/:messageId/pin`
+
+Pins a channel message; the caller only needs read access to the channel. Response `201` (new) or `200` (already pinned): `{"pinned":true,"messageId":"..."}`.
+
+#### `DELETE /api/servers/:serverId/channels/:channelId/messages/:messageId/pin`
+
+`204` on success, `404` when there was no pin.
+
+Every change publishes a `pin_event` (`pinned` / `unpinned`) to conversation participants or server members.
+
+### 5A.5 Polls
+
+Polls are attached to a message when it is created (see 5A.1). The summary shape is:
+
+```json
+{
+  "id": "...",
+  "messageId": "...",
+  "question": "Lunch where?",
+  "allowMultiple": false,
+  "anonymous": false,
+  "closesAt": "2026-11-25T04:00:00.000Z",
+  "closedAt": null,
+  "totalVotes": 3,
+  "options": [
+    { "id": "...", "label": "Sate", "position": 0, "votes": 2, "votedByMe": true }
+  ]
+}
+```
+
+#### `GET /api/polls/:pollId`
+
+Returns `{"poll":<PollSummary>}` for the caller. `404` when the poll does not exist or the caller cannot read its message.
+
+#### `POST /api/polls/:pollId/votes`
+
+Body: `{"optionIds":["..."]}` (a single `optionId` string is also accepted).
+
+- Non-multiple polls reject more than one option with `400`.
+- Options must belong to the poll (`400` otherwise).
+- Non-multiple polls replace the caller's previous vote; multiple-choice polls add the options.
+- Closed polls and polls past `closesAt` return `409`.
+
+Response `200`: `{"poll":<PollSummary>}` (includes the caller's `votedByMe`). Publishes `poll_event` with `event:"voted"`.
+
+#### `DELETE /api/polls/:pollId/votes`
+
+Retracts all of the caller's votes. Response `200`: `{"poll":<PollSummary>}`. `409` when closed.
+
+#### `POST /api/polls/:pollId/close`
+
+Closes the poll. Allowed for the poll creator, or a server owner/admin for channel polls. Response `200`: `{"poll":<PollSummary>}`. `403` when the caller may not close it, `409` when already closed. Publishes `poll_event` with `event:"closed"`.
+
+### 5A.6 Drafts
+
+Draft targets use the same `{scope}` / `{targetId}` convention as conversations (peer ID or canonical DM key, or channel ID). Drafts are private to the caller.
+
+#### `GET /api/drafts`
+
+Response `200`:
+
+```json
+{
+  "drafts": [
+    {
+      "scope": "channel",
+      "targetId": "...",
+      "text": "half-typed message",
+      "replyToMessageId": null,
+      "updatedAt": "..."
+    }
+  ]
+}
+```
+
+#### `PUT /api/drafts/:scope/:targetId`
+
+Body:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `text` | string | no | ≤4000 characters; trimmed to detect emptiness |
+| `replyToMessageId` | string or null | no | ≤128 characters |
+
+Behaviour: when `text` is empty after trimming **and** `replyToMessageId` is null, the draft is deleted and the endpoint returns `204`. Otherwise it upserts and returns `200`:
+
+```json
+{
+  "draft": {
+    "scope": "channel",
+    "targetId": "...",
+    "text": "half-typed message",
+    "replyToMessageId": null,
+    "updatedAt": "..."
+  }
+}
+```
+
+`400` invalid scope or text too long, `403` when the conversation/channel is not accessible.
+
+#### `DELETE /api/drafts/:scope/:targetId`
+
+`204` on success, `404` when no draft existed, `403` when the target is not accessible.
+
+### 5A.7 Conversations and read state
+
+#### `GET /api/conversations`
+
+Query: `scope` (`direct`|`channel`), `archived` (`true`|`false`), `favorite` (`true`|`false`).
+
+Response `200`: `{"conversations":[<ConversationPreference>]}` ordered by `sortOrder` ascending, then `updatedAt` ascending. Only conversations that already have a stored preference row for the caller are listed.
+
+`ConversationPreference`:
+
+```json
+{
+  "scope": "direct",
+  "targetId": "<userA>:<userB>",
+  "favorite": true,
+  "archived": false,
+  "markedUnread": false,
+  "mutedUntil": null,
+  "notificationLevel": "all",
+  "disappearingSeconds": null,
+  "sortOrder": 0,
+  "updatedAt": "..."
+}
+```
+
+#### `GET /api/conversations/:scope/:targetId`
+
+Returns `{"preference":<ConversationPreference>}`; when the caller has never configured the conversation, a default object is returned (`favorite`/`archived`/`markedUnread` `false`, `mutedUntil`/`disappearingSeconds`/`updatedAt` `null`, `notificationLevel` `all`, `sortOrder` `0`). `403` when the conversation/channel is not accessible.
+
+#### `PATCH /api/conversations/:scope/:targetId`
+
+Body (at least one field):
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `favorite` | boolean | Pin to favourites |
+| `archived` | boolean | Archive the conversation |
+| `markedUnread` | boolean | Force unread badge |
+| `mutedUntil` | ISO date or null | Absolute mute end |
+| `muteForSeconds` | integer | `1..31536000`; alternative to `mutedUntil` |
+| `notificationLevel` | string | `all`, `mentions`, `none` |
+| `disappearingSeconds` | integer or null | `5..604800` enables; `null` disables |
+| `sortOrder` | number | Manual ordering |
+
+Response `200`: `{"preference":<ConversationPreference>}`. Errors: `400` invalid field value or no fields, `403` inaccessible target.
+
+#### `GET /api/channels/:channelId/read-state`
+
+Auth: server member and text channel.
+
+Response `200`:
+
+```json
+{
+  "readState": {
+    "channelId": "...",
+    "lastReadMessageId": "...",
+    "lastReadAt": "2026-11-24T04:00:00.000Z",
+    "markedUnread": false
+  }
+}
+```
+
+`404` when the channel is not accessible.
+
+#### `PUT /api/channels/:channelId/read-state`
+
+Body (at least one field):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `messageId` | string | Last read message; must belong to the channel |
+| `markedUnread` | boolean | Force the channel unread |
+
+Response `200`: same `readState` object. Errors: `400` invalid body/value, `404` channel inaccessible or message not in the channel. Publishes `read_state` to the other server members.
+
+#### `GET /api/servers/:serverId/unread`
+
+Auth: server member.
+
+Response `200`:
+
+```json
+{
+  "channels": [
+    {
+      "channelId": "...",
+      "unreadCount": 4,
+      "lastMessageAt": "2026-11-24T04:00:00.000Z",
+      "favorite": false,
+      "archived": false,
+      "notificationLevel": "all"
+    }
+  ]
+}
+```
+
+Counts exclude the caller's own messages and deleted messages; a channel is unread until `read_state.lastReadAt` passes its newest message. `404` when the caller is not a member.
+
+### 5A.8 Presence
+
+Presence visibility comes from `preferences.settings.presenceVisibility`: `everyone`, `friends` (default), or `nobody`. The caller always sees their own presence.
+
+`Presence`:
+
+```json
+{
+  "userId": "...",
+  "status": "online",
+  "lastSeenAt": "2026-11-24T04:00:00.000Z",
+  "updatedAt": "2026-11-24T04:00:05.000Z"
+}
+```
+
+#### `GET /api/presence`
+
+Returns `{"presences":[<Presence>]}` for every friend of the caller (offline friends included).
+
+#### `GET /api/presence/:userId`
+
+Returns `{"presence":<Presence>}`. `403` when the target's visibility hides them from the caller, or when the caller is not a friend and visibility is `friends`.
+
+#### `PUT /api/presence`
+
+Body: `{"status":"online"|"away"|"offline"}`.
+
+Response `200`: `{"presence":<Presence>}`. `400` invalid status. Broadcasts a `presence` event to friends (or everyone for `everyone` visibility); `nobody` suppresses broadcasts.
+
+### 5A.9 Notifications
+
+Notifications are persisted per user and are the same objects pushed over `/ws/user` as `notification` events.
+
+`Notification`:
+
+```json
+{
+  "id": "...",
+  "kind": "channel_message",
+  "title": "Pesan baru",
+  "body": "Alice: hello",
+  "serverId": "...",
+  "channelId": "...",
+  "messageId": "...",
+  "actorId": "...",
+  "readAt": null,
+  "createdAt": "..."
+}
+```
+
+`kind` is one of `direct_message`, `channel_message`, `reaction`, `server_added`, `member_joined`, `mention`, `poll`, `announcement`, `scheduled_message`, `friend_request`.
+
+#### `GET /api/notifications`
+
+Query: `limit` `1..100` (default `50`), `before` (notification ID cursor), `unread=true`.
+
+Response `200`:
+
+```json
+{
+  "notifications": [<Notification>],
+  "nextCursor": "...",
+  "unreadCount": 3
+}
+```
+
+`400` when `limit` is out of range or the cursor does not belong to the caller.
+
+#### `GET /api/notifications/unread-count`
+
+Response `200`: `{"unreadCount":3}`.
+
+#### `POST /api/notifications/:notificationId/read`
+
+Marks one notification read (idempotent). Response `200`: `{"notification":<Notification>}`; `404` when it does not exist or belongs to someone else.
+
+#### `POST /api/notifications/read-all`
+
+Marks every unread notification read. Response `200`: `{"updatedCount":3}`.
+
+#### `DELETE /api/notifications/:notificationId`
+
+`204` on success, `404` when not found or not owned by the caller.
+
+#### `DELETE /api/notifications/read`
+
+Deletes every **read** notification of the caller. Response `200`: `{"deletedCount":3}`.
+
+### 5A.10 User preferences
+
+Appearance, chat-list, and notification defaults for the calling user.
+
+#### `GET /api/preferences`
+
+Response `200`:
+
+```json
+{
+  "preferences": {
+    "theme": "system",
+    "wallpaper": null,
+    "bubbleColor": null,
+    "textSize": "medium",
+    "chatListSort": "recent",
+    "chatListFilter": "all",
+    "notifyDirectMessages": true,
+    "notifyChannels": true,
+    "notifyMentions": true,
+    "settings": {},
+    "updatedAt": null
+  }
+}
+```
+
+Defaults are returned when the user has never saved preferences.
+
+#### `PUT /api/preferences`
+
+Body (all optional, at least one field):
+
+| Field | Type | Rules |
+| --- | --- | --- |
+| `theme` | string | `system`, `light`, `dark` |
+| `wallpaper` | string or null | ≤2048 characters (URL or identifier) |
+| `bubbleColor` | string or null | ≤2048 characters |
+| `textSize` | string | `small`, `medium`, `large` |
+| `chatListSort` | string | `recent`, `unread`, `name` |
+| `chatListFilter` | string | `all`, `unread`, `favorites`, `direct`, `groups` |
+| `notifyDirectMessages` | boolean | Push/persist notifications for DMs |
+| `notifyChannels` | boolean | Channel-message notifications |
+| `notifyMentions` | boolean | Mention notifications |
+| `settings` | object | ≤8192 bytes; supports `settings.presenceVisibility` = `everyone`\|`friends`\|`nobody` |
+
+Response `200`: `{"preferences":<...>}`. `400` for invalid values.
+
+### 5A.11 Scheduled messages
+
+#### `GET /api/scheduled-messages`
+
+Query: `scope` (`direct`|`channel`), `targetId`, `status` (`pending`|`sent`|`canceled`|`failed`), at most 200 rows.
+
+Response `200`: `{"scheduledMessages":[<ScheduledMessage>]}`.
+
+`ScheduledMessage`:
+
+```json
+{
+  "id": "...",
+  "scope": "channel",
+  "targetId": "...",
+  "text": "later",
+  "replyToMessageId": null,
+  "attachmentId": null,
+  "scheduledFor": "2026-11-24T05:00:00.000Z",
+  "status": "pending",
+  "sentMessageId": null,
+  "failureReason": null,
+  "createdAt": "..."
+}
+```
+
+#### `POST /api/scheduled-messages`
+
+Body:
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `scope` | string | **yes** | `direct` or `channel` |
+| `targetId` | string | **yes** | Peer ID / canonical key, or channel ID |
+| `text` | string | one of text/attachment | ≤4000 characters |
+| `attachmentId` | string | one of text/attachment | Ready attachment owned by the caller |
+| `replyToMessageId` | string or null | no | Must belong to the conversation/channel |
+| `scheduledFor` | ISO date | **yes** | 5 seconds to 1 year in the future |
+
+Response `201`: `{"scheduledMessage":<ScheduledMessage>}`. Errors: `400` validation, `403` inaccessible target, `404` invalid attachment/reply target. At dispatch time access is re-checked; when it was revoked the row becomes `failed` with `failureReason`.
+
+#### `PATCH /api/scheduled-messages/:scheduledMessageId`
+
+Body: `text` (1–4000), `scheduledFor` (5 seconds–1 year ahead), `replyToMessageId`. Response `200`: `{"scheduledMessage":<ScheduledMessage>}`. `404` when not found/not owned, `409` when the message is no longer `pending`.
+
+#### `DELETE /api/scheduled-messages/:scheduledMessageId`
+
+Cancels a pending message. `204` on success, `404` when not found, owned by someone else, or not `pending`.
+
+### 5A.12 Backup and restore
+
+#### `GET /api/backup`
+
+Exports the caller's data.
+
+Response `200`:
+
+```json
+{
+  "backup": {
+    "version": 1,
+    "exportedAt": "...",
+    "account": { "id": "...", "name": "...", "username": "...", "email": "...", "image": null, "createdAt": "..." },
+    "profile": { "...": "..." },
+    "preferences": { "...": "..." },
+    "conversationPreferences": [],
+    "drafts": [],
+    "pins": [],
+    "scheduledMessages": [],
+    "notifications": [],
+    "servers": [
+      {
+        "id": "...",
+        "name": "Server",
+        "description": null,
+        "channels": [{ "id": "...", "name": "general", "kind": "text" }]
+      }
+    ],
+    "directMessages": [],
+    "channelMessages": []
+  }
+}
+```
+
+Limits: the last 500 notifications, at most 5000 direct messages and 5000 channel messages.
+
+#### `POST /api/backup/restore`
+
+Body: `{"backup":{...}}` or the backup object itself.
+
+Restore is additive and scoped to the current user:
+
+- Only messages for conversations/channels the caller can still access are imported, re-attributed to the caller, and inserted with `onConflictDoNothing`.
+- `text` is truncated to 4000 characters; drafts are merged; preferences are not overwritten.
+- `version` must be `1` (`400` otherwise); total messages above 3×5000 return `413`.
+
+Response `200`:
+
+```json
+{
+  "restored": {
+    "directMessagesImported": 8,
+    "channelMessagesImported": 4,
+    "draftsImported": 2,
+    "skipped": 0
+  }
+}
+```
+
+### 5A.13 Translation
+
+Requires `TRANSLATE_API_URL`; until it is set both endpoints return `503 {"error":"Translation service is not configured"}`.
+
+#### `GET /api/translations/languages`
+
+Response `200`: `{"languages":[{"code":"id","name":"Indonesian"}]}` — a static list of supported target languages.
+
+#### `POST /api/translations`
+
+Body:
+
+| Field | Type | Required | Rules |
+| --- | --- | --- | --- |
+| `text` | string | **yes** | 1–5000 characters |
+| `targetLanguage` | string | **yes** | Language code such as `en` or `pt-BR` |
+| `sourceLanguage` | string | no | Same format; omit for auto-detect |
+
+The API forwards `{q, source, target, format:"text"}` to `TRANSLATE_API_URL` with a 10-second timeout and expects `{"translatedText":"..."}`.
+
+Response `200`:
+
+```json
+{
+  "translation": {
+    "text": "halo",
+    "sourceLanguage": "en",
+    "targetLanguage": "id"
+  }
+}
+```
+
+`translation.text` is the translated string.
+
+Errors: `400` invalid text/language code, `502` upstream failure or unexpected payload.
+
+### 5A.14 Friend QR codes
+
+#### `GET /api/friends/qr`
+
+Query: `expiresInSeconds` `60..86400` (default `3600`).
+
+Response `200`:
+
+```json
+{
+  "qr": {
+    "code": "<base64url HMAC token>",
+    "username": "alice",
+    "expiresAt": "2026-11-24T05:00:00.000Z",
+    "expiresInSeconds": 3600,
+    "deepLink": "ngumpul://friend?code=...",
+    "httpUrl": "https://api.afadhili.my.id/api/friends/qr/..."
+  }
+}
+```
+
+The code is self-contained (HMAC-SHA256 signed with `BETTER_AUTH_SECRET`) and needs no server storage. `400` when `expiresInSeconds` is invalid.
+
+#### `GET /api/friends/qr/:code`
+
+Preview before adding. Response `200`:
+
+```json
+{
+  "qr": {
+    "user": { "id": "...", "username": "alice", "displayName": "Alice", "avatar": null },
+    "expiresAt": "...",
+    "canRequest": true,
+    "alreadyFriends": false,
+    "blocked": false
+  }
+}
+```
+
+`400` invalid or own code, `410` expired code, `404` when the user no longer exists.
+
+#### `POST /api/friends/qr/claim`
+
+Body: `{"code":"..."}`. Creates the usual pending friend request.
+
+Response `201`:
+
+```json
+{
+  "request": { "id": "...", "requesterId": "...", "recipientId": "...", "status": "pending" },
+  "user": { "id": "...", "username": "alice", "displayName": "Alice", "avatar": null }
+}
+```
+
+Errors: `400` invalid/own code, `403` blocked relationship, `404` user not found, `409` already friends or a request is already pending, `410` expired code.
+
+### 5A.15 Voice participants
+
+These endpoints proxy LiveKit's Room Service; they require `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` and return `503` when LiveKit is not configured. The LiveKit room name is `server-<serverId>-channel-<channelId>`.
+
+#### `GET /api/servers/:serverId/channels/:channelId/voice-participants`
+
+Auth: server member; channel must be a voice channel.
+
+Response `200`:
+
+```json
+{
+  "room": "server-<serverId>-channel-<channelId>",
+  "participants": [
+    {
+      "identity": "<userId>",
+      "name": "Alice",
+      "username": "alice",
+      "image": null,
+      "joinedAt": "2026-11-24T04:00:00.000Z",
+      "isPublisher": true,
+      "audioMuted": false,
+      "videoEnabled": true,
+      "screenShareEnabled": false,
+      "metadata": null
+    }
+  ]
+}
+```
+
+Track flags are derived from the participant's published LiveKit tracks (not from client-reported state):
+
+| Field | Meaning |
+| --- | --- |
+| `isPublisher` | The participant has at least one audio or video track (data-only participants are excluded) |
+| `audioMuted` | `true` when the microphone track is absent or muted |
+| `videoEnabled` | `true` only when a camera track is published and unmuted |
+| `screenShareEnabled` | `true` only when a screen-share video track is published and unmuted |
+
+A muted track stays published in LiveKit, so the API inspects `muted` per track. A room that does not exist yet returns an empty `participants` array. `404` when the server/channel is not accessible or is not a voice channel; `502` when LiveKit is unreachable.
+
+#### `PATCH /api/servers/:serverId/channels/:channelId/voice-participants/:identity`
+
+Auth: server member. Members may only control their own `identity`; only owner/admin may control (or disconnect) others.
+
+Body (one of):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `muted` | boolean | `true` revokes publish permission, `false` restores it |
+| `remove` | `true` | Disconnects the participant; owner/admin only |
+
+Response `200`:
+
+```json
+{ "ok": true, "identity": "<userId>", "muted": false, "removed": false }
+```
+
+Errors: `400` invalid body, `403` insufficient role, `404` participant not in the room, `502` LiveKit error.
+
+### 5A.16 Background worker
+
+The API runs an in-process worker every 15 seconds (started with the server, stopped on shutdown):
+
+- Dispatches due `scheduled_message` rows (status `pending`, `scheduledFor` ≤ now) through the normal message-create path, re-checking access; marks them `sent` (with `sentMessageId`) or `failed` (with `failureReason`), and publishes `scheduled_message` events.
+- Hard-deletes direct and channel messages whose `expiresAt` has passed, together with their reactions, poll rows, mentions, pins, and attachment objects.
+- Closes polls whose `closesAt` has passed and publishes `poll_event` with `event:"closed"`.
+
+Worker activity is logged with the `[worker]` prefix.
+
 ## 6. Better Auth endpoints
 
 Base path: `/api/auth`.
@@ -1602,6 +2454,34 @@ Body:
 Optional for a first-time user: `name`, `image`.
 
 Returns a session token and user, and sets the cookie. Creates a verified user if one does not exist and sign-up is enabled.
+
+#### `POST /sign-in/social`
+
+Better Auth's native OAuth start. Body: `{"provider":"google","callbackURL":"<url>","errorCallbackURL":"<url>","disableRedirect":true}`. Returns the provider redirect URL (or redirects when `disableRedirect` is false) and sets the short-lived `__Secure-better-auth.state` cookie. Use this only from a same-site/native client, because cross-site browser fetches may drop the state cookie.
+
+#### `GET /google/start`
+
+Top-level-navigation Google start (first-party state cookie, cookie session). Query: `callbackURL` and `errorCallbackURL` (must be an origin allowed by `CORS_ORIGIN`/`BETTER_AUTH_URL`). Responses:
+
+- `302` to Google, with the state cookie copied from `signInSocial`.
+- `400 {"error":"Invalid callbackURL"}` for a missing/disallowed callback.
+- `502`/`500` when the upstream auth call fails.
+
+#### `GET /oauth-popup/start`
+
+Popup OAuth start used by browser clients that block third-party cookies. Query: `provider` (`google`), `popupOrigin`, `popupNonce`, `callbackURL`, `errorCallbackURL`. Sets the state cookie on the API origin and returns `302` to Google.
+
+The completion page (`/api/auth/callback/google`) renders a script that posts to `window.opener`:
+
+```json
+{ "type": "better-auth:oauth-popup", "targetOrigin": "http://localhost:5173", "nonce": "...", "token": "<session token>", "error": null }
+```
+
+`error` is an object such as `{"code":"invalid_code"}` when the flow failed. Responses on these paths set `Cross-Origin-Opener-Policy: unsafe-none` so `window.opener` survives; every other API path keeps `same-origin` (section 7.2).
+
+#### `GET`, `POST /callback/:id`
+
+OAuth provider callback (`:id` = `google`). Verifies state, exchanges the code, sets the session cookie, and redirects to the popup completion page or the `callbackURL`/`errorCallbackURL` supplied at start. Invalid or missing state returns the auth error page.
 
 #### `POST /email-otp/send-verification-otp`
 
@@ -2082,11 +2962,26 @@ Notification:
 }
 ```
 
-`kind` is `direct_message`, `channel_message`, `reaction`, `server_added`, or `member_joined`. Notifications are **ephemeral** (not stored in the database) and are currently delivered only while the user has a `/ws/user` socket open. Title/body are server-generated display strings, not a stable machine contract.
+`kind` is `direct_message`, `channel_message`, `reaction`, `server_added`, `member_joined`, `mention`, `poll`, `announcement`, `scheduled_message`, or `friend_request`. Notifications are persisted (list them through `/api/notifications`) and also pushed while a `/ws/user` socket is open. Title/body are server-generated display strings, not a stable machine contract.
+
+Additional user-scoped event envelopes:
+
+- `typing`: `{type:"typing", scope:"direct"|"channel", userId, peerId?, serverId?, channelId?, expiresAt}`.
+- `presence`: `{type:"presence", presence:{userId, status:"online"|"away"|"offline", lastSeenAt}}`.
+- `read_state`: `{type:"read_state", scope:"channel", userId, lastReadMessageId, lastReadAt, serverId?, channelId?}`.
+- `poll_event`: `{type:"poll_event", event:"created"|"voted"|"closed", poll:PollSummary, actorId, scope, serverId?, channelId?, messageId}`.
+- `pin_event`: `{type:"pin_event", event:"pinned"|"unpinned", scope:"direct"|"channel", messageId, actorId, pinnedAt, peerId?, serverId?, channelId?}`.
+- `scheduled_message`: `{type:"scheduled_message", event:"created"|"updated"|"canceled"|"sent"|"failed", scheduled:ScheduledMessageSummary}`.
 
 ### 7.7 Client-to-server messages
 
-The server does not accept application messages on these sockets. Any client message receives:
+Conversation sockets (`/ws/dm`, `/ws/channel`) accept a single client message type:
+
+```json
+{ "type": "typing" }
+```
+
+Typing events are throttled to one per 1.5 s per socket and are fanned out to the peer (DM) or server members (channel) as `typing` events with a six-second `expiresAt`. `/ws/user` rejects typing. Any other client message receives:
 
 ```json
 {
@@ -2174,7 +3069,19 @@ The token is a LiveKit access token with:
 
 The room is created by LiveKit on first join; there is no separate create-room endpoint in ngumpul.
 
-### 8.2 Client connection
+### 8.2 Media capabilities (voice, video, screen share)
+
+LiveKit natively supports voice calls, camera video calls, and screen sharing; the backend does not need a separate service for them.
+
+- **Voice call** — the client publishes a `MICROPHONE` track after `room.localParticipant.setMicrophoneEnabled(true)`. This is what the existing `pbp-client` voice module does on join.
+- **Video call** — the client publishes a `CAMERA` track with `setCameraEnabled(true)`. The existing client already exposes a camera toggle.
+- **Screen share** — the client publishes a `SCREEN_SHARE` video track with `setScreenShareEnabled(true)` (optionally plus `SCREEN_SHARE_AUDIO`). No backend change is required: the issued token grants `canPublish`, and LiveKit carries the track.
+- **Participant state** — `GET .../voice-participants` reports `audioMuted`, `videoEnabled`, and `screenShareEnabled`, derived from the published tracks (section 5A.15), so a UI can show "sharing screen" without subscribing to media.
+- **Permissions** — every server member may publish/subscribe today. Muting through `PATCH .../voice-participants/:identity` revokes `canPublish`; hosts can also disconnect a participant.
+
+`canPublishSources` is not restricted in the token, so camera and screen-share publishing are allowed. If a deployment needs to forbid screen sharing, add `canPublishSources: ["camera", "microphone"]` to the token grants (LiveKit `VideoGrant`).
+
+### 8.3 Client connection
 
 Use a LiveKit client SDK, for example:
 
@@ -2195,7 +3102,7 @@ The client must be able to reach:
 - LiveKit's TCP media port (`7881` by default)
 - LiveKit's UDP media range (`50000-50100` by default)
 
-### 8.3 Server configuration
+### 8.4 Server configuration
 
 Development Compose values:
 
@@ -2216,13 +3123,21 @@ LiveKit server settings in `livekit.yaml`:
 
 Never expose `LIVEKIT_API_SECRET` to the browser. The client only receives the short-lived JWT.
 
-### 8.4 What is not implemented
+### 8.5 Participant management
+
+Two REST endpoints proxy LiveKit's Room Service, documented in detail in section 5A.15:
+
+- `GET /api/servers/:serverId/channels/:channelId/voice-participants` — list who is in the room.
+- `PATCH /api/servers/:serverId/channels/:channelId/voice-participants/:identity` — `{"muted":true|false}` revokes/restores publish permission, `{"remove":true}` disconnects (owner/admin only; members may only mute themselves).
+
+Both require a voice channel of a server the caller belongs to, plus `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`; otherwise they return `503`.
+
+### 8.6 What is not implemented
 
 - no server-side recording
 - no LiveKit webhook endpoint
-- no room administration/list endpoint exposed by ngumpul
-- no per-role voice permissions (all server members get publish/subscribe/data)
-- no explicit room deletion; LiveKit empties/disposes rooms according to its own behavior
+- no room creation/deletion endpoint; LiveKit creates rooms on first join and empties/disposes them according to its own behavior
+- no per-role voice permissions beyond the participant mute/remove controls above (all server members may publish/subscribe/data)
 
 ---
 
@@ -2238,6 +3153,8 @@ Never expose `LIVEKIT_API_SECRET` to the browser. The client only receives the s
 | Create/update/delete channel | yes | yes | no |
 | Create invite | yes | yes | no |
 | Join voice token | yes | yes | yes |
+| List voice participants | yes | yes | yes |
+| Mute/disconnect another voice participant | yes | yes | no |
 | Send channel message | yes | yes | yes |
 | Edit own message | yes | yes | yes |
 | Delete own message for everyone | yes | yes | yes |
@@ -2262,6 +3179,16 @@ Never expose `LIVEKIT_API_SECRET` to the browser. The client only receives the s
 | Channel edit | sender only |
 | Channel delete for me | any current member |
 | Channel delete for everyone | sender or server owner/admin |
+| Add/remove reaction | conversation participant / current channel member |
+| Pin/unpin | conversation participant / current channel member |
+| Vote/retract poll vote | poll reader (participant or channel member) |
+| Close poll | poll creator, or server owner/admin for channel polls |
+| Post announcement | server owner/admin |
+| Search | only conversations/channels the caller can read |
+| Forward | source message readable by caller + destination writable |
+| Drafts, read state, conversation preferences, notifications, scheduled messages, backup | caller's own data only |
+| Presence | self always; friends/anyone per `settings.presenceVisibility` |
+| Friend QR create/claim | any authenticated user; claim respects blocks and pending requests |
 
 ---
 
@@ -2289,6 +3216,7 @@ Never expose `LIVEKIT_API_SECRET` to the browser. The client only receives the s
 | `S3_PUBLIC_ENDPOINT` | no | Endpoint used in presigned upload/download URLs |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | no for IAM roles | S3 credentials |
 | `S3_AUTO_CREATE_BUCKET` | no | Create the bucket at startup in development |
+| `TRANSLATE_API_URL` | no | LibreTranslate-compatible endpoint (`POST {url}` with `{q, source, target, format}`) used by `/api/translations`; without it both translation endpoints return `503` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT`, `REDIS_PORT` | Compose only | Local infrastructure |
 
 `BETTER_AUTH_SECRET` and `LIVEKIT_API_SECRET` must be distinct random values. Do not commit `.env`.

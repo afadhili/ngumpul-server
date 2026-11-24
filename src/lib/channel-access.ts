@@ -34,6 +34,14 @@ export async function getChannelAccess(userId: string, channelId: string, server
     return row as ChannelAccess;
 }
 
+export async function getServerRole(serverId: string, userId: string): Promise<ServerRole | null> {
+    const [membership] = await db.select({ role: serverMember.role }).from(serverMember)
+        .where(and(eq(serverMember.serverId, serverId), eq(serverMember.userId, userId))).limit(1);
+    return membership?.role === "owner" || membership?.role === "admin" || membership?.role === "member"
+        ? membership.role
+        : null;
+}
+
 export function isServerManager(role: ServerRole) {
     return role === "owner" || role === "admin";
 }

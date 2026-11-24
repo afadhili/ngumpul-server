@@ -4,7 +4,9 @@ import { WebSocket, WebSocketServer } from "ws";
 import { auth } from "../lib/auth";
 import { getChannelAccess } from "../lib/channel-access";
 import { canAccessDirectConversation } from "../lib/direct-conversation";
-import { onUserEvent } from "../services/event.service";
+import { onUserEvent, publishUserEvent } from "../services/event.service";
+import { broadcastPresence, markOffline, markOnline } from "../services/presence.service";
+import { getServerMemberIds } from "../services/server-event.service";
 import { onChatMessage } from "../services/realtime.service";
 import { registerChannelSocket, registerDirectSocket } from "../services/socket-registry.service";
 
@@ -80,6 +82,17 @@ export function attachWebSocket(server: Server) {
                         ? { type: "connected", conversationWith: scope.peerId }
                         : { type: "connected", userId: scope.userId }));
 
+                if (scope.type === "user") {
+                    void markOnline(scope.userId)
+                        .then(() => broadcastPresence(scope.userId))
+                        .catch(error => console.error("Unable to mark presence online:", error));
+                    webSocket.on("close", () => {
+                        void markOffline(scope.userId)
+                            .then(() => broadcastPresence(scope.userId))
+                            .catch(error => console.error("Unable to mark presence offline:", error));
+                    });
+                }
+
                 const channelScope = scope.type === "channel" ? scope : null;
                 const directScope = scope.type === "direct" ? scope : null;
                 const unregister = channelScope
@@ -113,10 +126,9 @@ export function attachWebSocket(server: Server) {
                     unregister();
                     scopes.delete(webSocket);
                 });
-                webSocket.on("message", () => {
-                    if (webSocket.readyState === WebSocket.OPEN) {
-                        webSocket.send(JSON.stringify({ type: "error", error: "Send messages through the authenticated REST API" }));
-                    }
+                const typingWindow = { lastSent: 0 };
+                webSocket.on("message", raw => {
+                    void handleClientMessage(webSocket, scopes.get(webSocket) ?? scope, raw, typingWindow);
                 });
                 webSocket.on("error", error => console.error("WebSocket error:", error.message));
             });
@@ -132,6 +144,64 @@ export function attachWebSocket(server: Server) {
         for (const client of webSocketServer.clients) client.terminate();
         webSocketServer.close();
     };
+}
+
+
+type TypingWindow = { lastSent: number };
+const TYPING_THROTTLE_MS = 1500;
+
+async function handleClientMessage(
+    socket: WebSocket,
+    scope: { type: "channel"; userId: string; serverId: string; channelId: string }
+        | { type: "direct"; userId: string; peerId: string }
+        | { type: "user"; userId: string },
+    raw: import("ws").RawData,
+    window: TypingWindow,
+) {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    let payload: unknown;
+    try {
+        payload = JSON.parse(raw.toString());
+    } catch {
+        socket.send(JSON.stringify({ type: "error", error: "Invalid JSON payload" }));
+        return;
+    }
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+        socket.send(JSON.stringify({ type: "error", error: "Invalid payload" }));
+        return;
+    }
+    const message = payload as Record<string, unknown>;
+    if (message.type !== "typing") {
+        socket.send(JSON.stringify({ type: "error", error: "Send messages through the authenticated REST API" }));
+        return;
+    }
+    if (scope.type === "user") {
+        socket.send(JSON.stringify({ type: "error", error: "Typing events belong to a conversation socket" }));
+        return;
+    }
+    const now = Date.now();
+    if (now - window.lastSent < TYPING_THROTTLE_MS) return;
+    window.lastSent = now;
+
+    const event = {
+        type: "typing" as const,
+        scope: scope.type === "channel" ? ("channel" as const) : ("direct" as const),
+        userId: scope.userId,
+        ...(scope.type === "channel"
+            ? { serverId: scope.serverId, channelId: scope.channelId }
+            : { peerId: scope.peerId }),
+        expiresAt: new Date(now + 6000).toISOString(),
+    };
+    try {
+        if (scope.type === "direct") {
+            await publishUserEvent([scope.peerId], event);
+        } else {
+            const memberIds = await getServerMemberIds(scope.serverId);
+            await publishUserEvent(memberIds.filter(id => id !== scope.userId), event);
+        }
+    } catch (error) {
+        console.error("Unable to publish typing event:", error);
+    }
 }
 
 async function readSession(request: IncomingMessage, token?: string | null) {
