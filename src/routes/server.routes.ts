@@ -17,6 +17,10 @@ import {
     updateServerMember,
 } from "../controllers/server.controller";
 import {
+    addChannelMessageReaction,
+    removeChannelMessageReaction,
+} from "../controllers/reaction.controller";
+import {
     deleteChannelMessage,
     editChannelMessage,
     listChannelMessages,
@@ -40,6 +44,8 @@ serverRoutes.post("/:serverId/channels/:channelId/voice-token", getVoiceChannelT
 serverRoutes.get("/:serverId/channels/:channelId/messages", listChannelMessages);
 serverRoutes.post("/:serverId/channels/:channelId/messages", sendChannelMessage);
 serverRoutes.patch("/:serverId/channels/:channelId/messages/:messageId", editChannelMessage);
+serverRoutes.post("/:serverId/channels/:channelId/messages/:messageId/reactions", addChannelMessageReaction);
+serverRoutes.delete("/:serverId/channels/:channelId/messages/:messageId/reactions/:emoji", removeChannelMessageReaction);
 serverRoutes.delete("/:serverId/channels/:channelId/messages/:messageId", deleteChannelMessage);
 
 serverRoutes.get("/:serverId/members", listServerMembers);

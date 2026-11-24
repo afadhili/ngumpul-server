@@ -1,3 +1,10 @@
+export type MessageReaction = {
+    emoji: string;
+    count: number;
+    userIds: string[];
+    me: boolean;
+};
+
 export type DirectMessageRecord = {
     id: string;
     senderId: string;
@@ -12,6 +19,7 @@ export type DirectMessageRecord = {
     deletedAt: string | null;
     createdAt: string;
     updatedAt: string;
+    reactions: MessageReaction[];
 };
 
 export type DirectMessageEvent = {
@@ -33,6 +41,7 @@ export type ChannelMessageRecord = {
     deletedAt: string | null;
     createdAt: string;
     updatedAt: string;
+    reactions: MessageReaction[];
 };
 
 export type ChannelMessageEvent = {
@@ -56,7 +65,8 @@ export function isChatMessage(value: unknown): value is ChatMessage {
         return typeof message.senderId === "string"
             && typeof message.recipientId === "string"
             && typeof direct.id === "string"
-            && typeof direct.status === "string";
+            && typeof direct.status === "string"
+            && Array.isArray(direct.reactions);
     }
 
     if (message.type === "channel_message" && (message.event === "created" || message.event === "updated" || message.event === "deleted")) {
@@ -67,7 +77,8 @@ export function isChatMessage(value: unknown): value is ChatMessage {
             && typeof message.channelId === "string"
             && typeof channel.id === "string"
             && typeof channel.channelId === "string"
-            && channel.channelId === message.channelId;
+            && channel.channelId === message.channelId
+            && Array.isArray(channel.reactions);
     }
 
     return false;

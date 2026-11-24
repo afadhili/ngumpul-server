@@ -27,6 +27,10 @@ import {
     updatePrivacySettings,
 } from "../controllers/account.controller";
 import {
+    addDirectMessageReaction,
+    removeDirectMessageReaction,
+} from "../controllers/reaction.controller";
+import {
     deleteDirectMessage,
     editDirectMessage,
     listDirectMessages,
@@ -57,6 +61,8 @@ apiRoutes.post("/direct-messages/:peerId", sendDirectMessage);
 apiRoutes.patch("/direct-messages/:messageId", editDirectMessage);
 apiRoutes.delete("/direct-messages/:messageId", deleteDirectMessage);
 apiRoutes.post("/direct-messages/:messageId/receipts", markDirectMessageReceipt);
+apiRoutes.post("/direct-messages/:messageId/reactions", addDirectMessageReaction);
+apiRoutes.delete("/direct-messages/:messageId/reactions/:emoji", removeDirectMessageReaction);
 apiRoutes.get("/attachments", listConversationAttachments);
 apiRoutes.post("/attachments/uploads", createAttachmentUpload);
 apiRoutes.post("/attachments/:attachmentId/complete", completeAttachmentUpload);

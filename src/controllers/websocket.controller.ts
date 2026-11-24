@@ -4,6 +4,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { auth } from "../lib/auth";
 import { getChannelAccess } from "../lib/channel-access";
 import { canAccessDirectConversation } from "../lib/direct-conversation";
+import { onUserEvent } from "../services/event.service";
 import { onChatMessage } from "../services/realtime.service";
 import { registerChannelSocket, registerDirectSocket } from "../services/socket-registry.service";
 
@@ -13,7 +14,8 @@ export function attachWebSocket(server: Server) {
     const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
     type SocketScope =
         | { type: "channel"; userId: string; serverId: string; channelId: string }
-        | { type: "direct"; userId: string; peerId: string };
+        | { type: "direct"; userId: string; peerId: string }
+        | { type: "user"; userId: string };
     const scopes = new WeakMap<WebSocket, SocketScope>();
 
     const unsubscribe = onChatMessage(message => {
@@ -33,6 +35,14 @@ export function attachWebSocket(server: Server) {
         }
     });
 
+    const unsubscribeUserEvents = onUserEvent((recipients, event) => {
+        for (const client of webSocketServer.clients) {
+            const scope = scopes.get(client);
+            if (client.readyState !== WebSocket.OPEN || !scope || scope.type !== "user") continue;
+            if (recipients.includes(scope.userId)) client.send(JSON.stringify(event));
+        }
+    });
+
     server.on("upgrade", (request, socket, head) => {
         void (async () => {
             const url = new URL(request.url ?? "/", "http://localhost");
@@ -42,7 +52,7 @@ export function attachWebSocket(server: Server) {
             if (url.pathname === "/ws/channel") {
                 const channelId = url.searchParams.get("channelId")?.trim() ?? "";
                 if (!channelId) return reject(socket, 400, "channelId is required");
-                const session = await readSession(request);
+                const session = await readSession(request, url.searchParams.get("token"));
                 if (!session) return reject(socket, 401, "Unauthorized");
                 const access = await getChannelAccess(session.user.id, channelId);
                 if (!access || access.kind !== "text") return reject(socket, 403, "Forbidden");
@@ -50,10 +60,14 @@ export function attachWebSocket(server: Server) {
             } else if (url.pathname === "/ws/dm") {
                 const peerId = url.searchParams.get("peerId")?.trim() ?? "";
                 if (!peerId) return reject(socket, 400, "peerId is required");
-                const session = await readSession(request);
+                const session = await readSession(request, url.searchParams.get("token"));
                 if (!session) return reject(socket, 401, "Unauthorized");
                 if (!await canAccessDirectConversation(session.user.id, peerId)) return reject(socket, 403, "Forbidden");
                 scope = { type: "direct", userId: session.user.id, peerId };
+            } else if (url.pathname === "/ws/user") {
+                const session = await readSession(request, url.searchParams.get("token"));
+                if (!session) return reject(socket, 401, "Unauthorized");
+                scope = { type: "user", userId: session.user.id };
             } else {
                 return reject(socket, 404, "Not found");
             }
@@ -62,7 +76,9 @@ export function attachWebSocket(server: Server) {
                 scopes.set(webSocket, scope);
                 webSocket.send(JSON.stringify(scope.type === "channel"
                     ? { type: "connected", channelId: scope.channelId, serverId: scope.serverId }
-                    : { type: "connected", conversationWith: scope.peerId }));
+                    : scope.type === "direct"
+                        ? { type: "connected", conversationWith: scope.peerId }
+                        : { type: "connected", userId: scope.userId }));
 
                 const channelScope = scope.type === "channel" ? scope : null;
                 const directScope = scope.type === "direct" ? scope : null;
@@ -73,11 +89,13 @@ export function attachWebSocket(server: Server) {
                         serverId: channelScope.serverId,
                         channelId: channelScope.channelId,
                     })
-                    : registerDirectSocket({
-                        socket: webSocket,
-                        userId: directScope!.userId,
-                        peerId: directScope!.peerId,
-                    });
+                    : directScope
+                        ? registerDirectSocket({
+                            socket: webSocket,
+                            userId: directScope.userId,
+                            peerId: directScope.peerId,
+                        })
+                        : () => undefined;
 
                 const revalidate = channelScope
                     ? setInterval(() => {
@@ -110,17 +128,21 @@ export function attachWebSocket(server: Server) {
 
     return () => {
         unsubscribe();
+        unsubscribeUserEvents();
         for (const client of webSocketServer.clients) client.terminate();
         webSocketServer.close();
     };
 }
 
-async function readSession(request: IncomingMessage) {
+async function readSession(request: IncomingMessage, token?: string | null) {
     const headers = new Headers();
     for (const [key, value] of Object.entries(request.headers)) {
         if (typeof value === "string") headers.set(key, value);
         else if (Array.isArray(value)) headers.set(key, value.join(", "));
     }
+    // Browsers cannot set Authorization on WebSocket handshakes, so accept the
+    // same session token as a query parameter for cross-site clients.
+    if (token) headers.set("authorization", `Bearer ${token}`);
     return auth.api.getSession({ headers });
 }
 

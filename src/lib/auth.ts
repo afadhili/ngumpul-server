@@ -1,6 +1,6 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
-import { emailOTP } from "better-auth/plugins";
+import { bearer, emailOTP, oauthPopup } from "better-auth/plugins";
 import "dotenv/config";
 import { db } from "../db/index";
 import * as schema from "../db/schema/auth";
@@ -88,6 +88,8 @@ const authOptions: BetterAuthOptions = {
             storeOTP: "hashed",
             sendVerificationOTP: async ({ email, otp, type }) => sendVerificationOtpEmail(email, otp, type),
         }),
+        bearer(),
+        oauthPopup(),
     ],
 };
 

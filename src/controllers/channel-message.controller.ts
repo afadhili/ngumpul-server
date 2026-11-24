@@ -4,12 +4,16 @@ import type { Context } from "hono";
 import { db } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { channelMessage, channelMessageHidden } from "../db/schema/channel-message";
+import { channelMessageReaction } from "../db/schema/reaction";
 import { getChannelAccess, isServerManager } from "../lib/channel-access";
 import { isUniqueViolation } from "../lib/db-errors";
 import { getSessionUserId } from "../lib/request-auth";
 import type { ChannelMessageRecord } from "../models/chat-message";
 import { deleteObject } from "../services/object-storage.service";
+import { sendNotification } from "../services/notification.service";
+import { channelReactions, loadChannelReactions } from "../services/reaction.service";
 import { publishChatMessage } from "../services/realtime.service";
+import { getServerMemberIds } from "../services/server-event.service";
 
 export async function listChannelMessages(c: Context) {
     const userId = await getSessionUserId(c);
@@ -45,16 +49,18 @@ export async function listChannelMessages(c: Context) {
     )).orderBy(desc(sql`date_trunc('milliseconds', ${channelMessage.createdAt})`), desc(channelMessage.id)).limit(rawLimit);
 
     const replyIds = [...new Set(rows.map(row => row.replyToMessageId).filter((id): id is string => Boolean(id)))];
+    const allIds = [...rows.map(row => row.id), ...replyIds];
+    const reactionMap = await loadChannelReactions(allIds, userId);
     const replyRows = replyIds.length
         ? await db.select().from(channelMessage).where(and(
             inArray(channelMessage.id, replyIds),
             eq(channelMessage.channelId, channelId),
         ))
         : [];
-    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row)]));
+    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, reactionMap.get(row.id) ?? [])]));
     const nextCursor = rows.length === rawLimit ? rows[rows.length - 1]?.id ?? null : null;
     const messages = rows.reverse().map(row => ({
-        ...toPublicMessage(row),
+        ...toPublicMessage(row, reactionMap.get(row.id) ?? []),
         replyTo: row.replyToMessageId ? replyById.get(row.replyToMessageId) ?? null : null,
     }));
     return c.json({ messages, nextCursor });
@@ -103,7 +109,7 @@ export async function sendChannelMessage(c: Context) {
             eq(channelMessage.channelId, channelId),
         )).limit(1);
         if (!parent) return c.json({ error: "Reply target not found in this channel" }, 404);
-        replyTo = toPublicMessage(parent);
+        replyTo = toPublicMessage(parent, await channelReactions(parent.id, userId));
     }
 
     let row: typeof channelMessage.$inferSelect;
@@ -122,8 +128,21 @@ export async function sendChannelMessage(c: Context) {
         }
         throw error;
     }
-    const message = toPublicMessage(row);
+    const message = toPublicMessage(row, []);
     await emitChannelMessage("created", access.serverId, message);
+    const recipients = (await getServerMemberIds(access.serverId)).filter(id => id !== userId);
+    if (recipients.length > 0) {
+        await sendNotification({
+            recipients,
+            kind: "channel_message",
+            title: "Pesan channel baru",
+            body: summarizeNotificationBody(text),
+            serverId: access.serverId,
+            channelId,
+            messageId: message.id,
+            actorId: userId,
+        });
+    }
     return c.json({ message: { ...message, replyTo } }, 201);
 }
 
@@ -154,7 +173,7 @@ export async function editChannelMessage(c: Context) {
         .where(and(eq(channelMessage.id, messageId), eq(channelMessage.senderId, userId), isNull(channelMessage.deletedAt)))
         .returning();
     if (!updated) return c.json({ error: "Message not found" }, 404);
-    const message = toPublicMessage(updated);
+    const message = toPublicMessage(updated, await channelReactions(updated.id, userId));
     await emitChannelMessage("updated", access.serverId, message);
     return c.json({ message });
 }
@@ -205,13 +224,14 @@ export async function deleteChannelMessage(c: Context) {
         updatedAt: now,
     }).where(and(eq(channelMessage.id, messageId), isNull(channelMessage.deletedAt))).returning();
     if (deleted) {
+        await db.delete(channelMessageReaction).where(eq(channelMessageReaction.messageId, messageId));
         if (current.attachmentId) await db.delete(attachment).where(eq(attachment.id, current.attachmentId));
-        await emitChannelMessage("deleted", access.serverId, toPublicMessage(deleted));
+        await emitChannelMessage("deleted", access.serverId, toPublicMessage(deleted, []));
     }
     return c.body(null, 204);
 }
 
-function toPublicMessage(row: typeof channelMessage.$inferSelect): ChannelMessageRecord {
+function toPublicMessage(row: typeof channelMessage.$inferSelect, reactions: ChannelMessageRecord["reactions"] = []): ChannelMessageRecord {
     return {
         id: row.id,
         channelId: row.channelId,
@@ -223,6 +243,7 @@ function toPublicMessage(row: typeof channelMessage.$inferSelect): ChannelMessag
         deletedAt: row.deletedAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
+        reactions,
     };
 }
 
@@ -242,6 +263,11 @@ export async function emitChannelMessage(
     } catch (error) {
         console.error("Unable to publish channel message event:", error);
     }
+}
+
+function summarizeNotificationBody(text: string | null) {
+    if (!text) return "Mengirim lampiran";
+    return text.length > 120 ? `${text.slice(0, 117)}...` : text;
 }
 
 async function readJson(c: Context): Promise<Record<string, unknown> | null> {

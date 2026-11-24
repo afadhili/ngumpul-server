@@ -4,10 +4,13 @@ import type { Context } from "hono";
 import { db } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { directMessage, directMessageHidden } from "../db/schema/direct-message";
+import { directMessageReaction } from "../db/schema/reaction";
 import { canAccessDirectConversation } from "../lib/direct-conversation";
 import { getSessionUserId } from "../lib/request-auth";
 import type { DirectMessageRecord } from "../models/chat-message";
 import { deleteObject } from "../services/object-storage.service";
+import { sendNotification } from "../services/notification.service";
+import { directReactions, loadDirectReactions } from "../services/reaction.service";
 import { publishChatMessage } from "../services/realtime.service";
 
 export async function listDirectMessages(c: Context) {
@@ -41,13 +44,15 @@ export async function listDirectMessages(c: Context) {
         ...(cursorCondition ? [cursorCondition] : []),
     )).orderBy(desc(sql`date_trunc('milliseconds', ${directMessage.createdAt})`), desc(directMessage.id)).limit(rawLimit);
     const replyIds = [...new Set(rows.map(row => row.replyToMessageId).filter((id): id is string => Boolean(id)))];
+    const allIds = [...rows.map(row => row.id), ...replyIds];
+    const reactionMap = await loadDirectReactions(allIds, userId);
     const replyRows = replyIds.length
         ? await db.select().from(directMessage).where(inArray(directMessage.id, replyIds))
         : [];
-    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row)]));
+    const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, reactionMap.get(row.id) ?? [])]));
     const nextCursor = rows.length === rawLimit ? rows[rows.length - 1]?.id ?? null : null;
     const messages = rows.reverse().map(row => ({
-        ...toPublicMessage(row),
+        ...toPublicMessage(row, reactionMap.get(row.id) ?? []),
         replyTo: row.replyToMessageId ? replyById.get(row.replyToMessageId) ?? null : null,
     }));
     return c.json({ messages, nextCursor });
@@ -93,14 +98,22 @@ export async function sendDirectMessage(c: Context) {
             ),
         )).limit(1);
         if (!parent) return c.json({ error: "Reply target not found in this conversation" }, 404);
-        replyTo = toPublicMessage(parent);
+        replyTo = toPublicMessage(parent, await directReactions(parent.id, userId));
     }
 
     const [row] = await db.insert(directMessage).values({
         id: randomUUID(), senderId: userId, recipientId: peerId, text, attachmentId, replyToMessageId: replyToId,
     }).returning();
-    const message = toPublicMessage(row);
+    const message = toPublicMessage(row, []);
     await emitDirectMessage("created", message);
+    await sendNotification({
+        recipients: [peerId],
+        kind: "direct_message",
+        title: "Pesan langsung baru",
+        body: text ? (text.length > 120 ? `${text.slice(0, 117)}...` : text) : "Mengirim lampiran",
+        messageId: message.id,
+        actorId: userId,
+    });
     return c.json({ message: { ...message, replyTo } }, 201);
 }
 
@@ -120,7 +133,7 @@ export async function editDirectMessage(c: Context) {
     const [updated] = await db.update(directMessage).set({ text, editedAt: now, updatedAt: now })
         .where(and(eq(directMessage.id, messageId), eq(directMessage.senderId, userId), isNull(directMessage.deletedAt))).returning();
     if (!updated) return c.json({ error: "Message not found" }, 404);
-    const message = toPublicMessage(updated);
+    const message = toPublicMessage(updated, await directReactions(updated.id, userId));
     await emitDirectMessage("updated", message);
     return c.json({ message });
 }
@@ -159,8 +172,9 @@ export async function deleteDirectMessage(c: Context) {
     const [deleted] = await db.update(directMessage).set({ text: null, attachmentId: null, deletedAt: now, updatedAt: now })
         .where(and(eq(directMessage.id, messageId), isNull(directMessage.deletedAt))).returning();
     if (deleted) {
+        await db.delete(directMessageReaction).where(eq(directMessageReaction.messageId, messageId));
         if (current.attachmentId) await db.delete(attachment).where(eq(attachment.id, current.attachmentId));
-        await emitDirectMessage("deleted", toPublicMessage(deleted));
+        await emitDirectMessage("deleted", toPublicMessage(deleted, []));
     }
     return c.body(null, 204);
 }
@@ -191,12 +205,13 @@ export async function markDirectMessageReceipt(c: Context) {
         .where(and(eq(directMessage.senderId, peerId), eq(directMessage.recipientId, userId), beforeMarker, statusCondition))
         .returning();
     const markerUpdated = updated.find(message => message.id === marker.id);
-    const record = markerUpdated ? toPublicMessage(markerUpdated) : toPublicMessage(marker);
+    const markerRecord = markerUpdated ?? marker;
+    const record = toPublicMessage(markerRecord, await directReactions(markerRecord.id, userId));
     await emitDirectMessage("receipt", record);
     return c.json({ status: record.status, upToMessageId: marker.id, updatedCount: updated.length });
 }
 
-function toPublicMessage(row: typeof directMessage.$inferSelect): DirectMessageRecord {
+function toPublicMessage(row: typeof directMessage.$inferSelect, reactions: DirectMessageRecord["reactions"] = []): DirectMessageRecord {
     return {
         id: row.id,
         senderId: row.senderId,
@@ -211,6 +226,7 @@ function toPublicMessage(row: typeof directMessage.$inferSelect): DirectMessageR
         deletedAt: row.deletedAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
+        reactions,
     };
 }
 

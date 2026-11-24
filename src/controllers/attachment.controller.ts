@@ -242,6 +242,7 @@ function toDirectMessageRecord(row: typeof import("../db/schema/direct-message")
         deletedAt: row.deletedAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
+        reactions: [],
     };
 }
 

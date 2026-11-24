@@ -12,7 +12,7 @@
 - [x] Email/password auth and Better Auth route mount.
 - [x] Google OAuth provider configuration (Google credentials still need to be supplied in `.env`).
 - [x] PostgreSQL/Drizzle, Redis, and LiveKit services in Docker Compose.
-- [x] Authenticated WebSocket endpoints for private direct messages and server text channels, backed by Redis Pub/Sub.
+- [x] Authenticated WebSocket endpoints for private direct messages, server text channels, and per-user realtime events, backed by Redis Pub/Sub.
 
 ## First backend tranche
 
@@ -24,6 +24,7 @@
 - [x] Persist direct messages, enforce friend/block access, and publish private direct-message events through Redis-backed WebSockets.
 - [x] Persist server-channel messages and bind access to channel membership.
 - [x] Edit/delete server and channel metadata; manage member roles and removal.
+- [x] Publish server/member/channel lifecycle events, message reactions, and new-message notifications to a per-user WebSocket (`/ws/user`).
 - [ ] Connect a voice client to LiveKit and implement speaking/mute/leave flows in the application client.
 
 ## Feature backlog
@@ -49,7 +50,7 @@
 - [ ] Forward messages to a friend or server channel.
 - [x] Delete a message for self or everyone.
 - [x] Edit a message and mark it edited.
-- [ ] Add emoji reactions.
+- [x] Add emoji reactions to direct and channel messages with per-user toggle, REST endpoints, and realtime `message_reaction` events.
 - [ ] Search messages.
 - [ ] Pin messages.
 - [ ] Save unsent drafts.
@@ -86,7 +87,7 @@
 ### Media, notifications, and appearance
 
 - [ ] Send images, videos, voice messages, and documents as persistent chat messages (attachment storage API is ready; message persistence/linking remains).
-- [ ] Notify users about new messages.
+- [x] Notify users about new messages, reactions, and server/member events through ephemeral realtime notifications on `/ws/user`; notifications are not persisted or listed later.
 - [ ] Customize chat wallpaper, bubble colors, and text size.
 - [ ] Configure notification settings per friend/channel.
 - [ ] Add dark and light theme preferences (persist preference only if a server-side profile setting is needed).
@@ -102,6 +103,7 @@
 - Direct-message smoke flow passed: persisted text, authenticated Redis/WebSocket delivery, reply preview, edit, delivered/read receipt, per-user and global deletion, cursor pagination, and S3 image upload/link/download/deletion.
 - Local Compose uses Silo (MinIO-compatible S3 API) with auto-created private bucket `pbp-attachments`; configure S3 environment variables to use another S3 provider.
 - Server/channel smoke flow passed: server and channel metadata updates, member add/list/promote/remove, owner protections, channel message send/list/edit/delete with attachment linking, and authenticated channel WebSocket delivery.
+- Realtime/reaction smoke flow passed: `/ws/user` delivered `server.created`/`server.channel_created`/`server.updated`, `message_reaction` for DM and channel messages, and notification events; REST reaction add/remove was idempotent and returned summaries with `me`; reaction summaries appeared in message lists; public `wss://api.afadhili.my.id/ws/user` worked with a bearer token.
 - Security hardening: authenticated WebSockets with Origin checks, socket revocation on member removal/block, explicit Better Auth rate limits, 1 MiB JSON body cap, security headers, HTTP timeouts, server-side attachment magic-byte validation, distinct rotated auth/LiveKit secrets supplied through `.env`, and loopback-only PostgreSQL/Redis/object-store ports.
 - Attachment preview smoke flow passed: a ready PNG rendered through the unauthenticated public `/api/attachments/:attachmentId/preview` capability URL (302 to an inline signed object URL, correct bytes), while `/download-url` still required a session; test metadata and objects were removed afterward.
 
@@ -135,5 +137,8 @@
 - `GET/POST /api/direct-messages/:peerId`: list a friend's messages or send text and/or a ready attachment ID. Listing supports `limit` (1–100) and `before` (message ID) cursor pagination. Replies can include `replyToMessageId`.
 - `PATCH /api/direct-messages/:messageId`: edit the sender's message text. `DELETE /api/direct-messages/:messageId?scope=me|everyone`: hide it for the signed-in user or delete it for both participants (sender only); `scope` is required.
 - `POST /api/direct-messages/:messageId/receipts` with `{ "status": "delivered|read" }`: acknowledge the received message and all earlier incoming messages in that conversation.
+- `POST /api/direct-messages/:messageId/reactions` with `{ "emoji": "👍" }` and `DELETE /api/direct-messages/:messageId/reactions/:emoji`: add/remove an emoji reaction; responses return `{ messageId, reactions }`.
+- `POST /api/servers/:serverId/channels/:channelId/messages/:messageId/reactions` with `{ "emoji": "👍" }` and `DELETE .../reactions/:emoji`: add/remove a channel-message reaction with the same summary shape.
 - `WS /ws/dm?peerId=...`: authenticated private realtime stream for two friends; it relays message, edit, delete, and receipt events. Send messages through the authenticated REST API.
 - `WS /ws/channel?channelId=...`: authenticated realtime stream for a server text channel, available only to current server members. It emits `connected`, `channel_message` created/updated/deleted events, and closes with code `4003` when access is revoked. Browser Origins must match `CORS_ORIGIN`/`BETTER_AUTH_URL`.
+- `WS /ws/user`: authenticated per-user stream for `server_event`, `notification`, and `message_reaction` events. It does not grant any conversation access by itself; sockets use the session cookie or `?token=<session-token>`.

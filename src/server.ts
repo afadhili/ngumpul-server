@@ -4,16 +4,17 @@ import type { Server as HttpServer } from "node:http";
 import { pool } from "./db/index";
 import { app } from "./app";
 import { attachWebSocket } from "./controllers/websocket.controller";
+import { closeEventService, connectEventService } from "./services/event.service";
 import { closeRealtimeService, connectRealtimeService } from "./services/realtime.service";
 import { ensureBucketExists } from "./services/object-storage.service";
 
 const port = Number(process.env.PORT ?? 3000);
 
-await Promise.all([connectRealtimeService(), ensureBucketExists()]);
+await Promise.all([connectRealtimeService(), connectEventService(), ensureBucketExists()]);
 
 const server = serve({ fetch: app.fetch, port }, info => {
     console.log(`Server listening on http://localhost:${info.port}`);
-    console.log(`WebSocket chat available at ws://localhost:${info.port}/ws/channel?channelId=... and /ws/dm?peerId=...`);
+    console.log(`WebSocket available at ws://localhost:${info.port}/ws/channel, /ws/dm and /ws/user`);
 });
 const httpServer = server as HttpServer;
 httpServer.requestTimeout = 30_000;
@@ -27,7 +28,7 @@ const shutdown = async () => {
     shuttingDown = true;
     closeWebSocketServer();
     server.close();
-    await Promise.all([closeRealtimeService(), pool.end()]);
+    await Promise.all([closeRealtimeService(), closeEventService(), pool.end()]);
     process.exit(0);
 };
 

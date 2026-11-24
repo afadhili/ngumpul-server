@@ -23,6 +23,7 @@ The source of truth is the code in `src/routes`, `src/controllers`, `src/lib`, a
 | Better Auth | `http://localhost:3000/api/auth` | Cookie session endpoints |
 | App WebSocket | `ws://localhost:3000/ws/dm?peerId=...` | Direct-message events |
 | App WebSocket | `ws://localhost:3000/ws/channel?channelId=...` | Server text-channel events |
+| App WebSocket | `ws://localhost:3000/ws/user` | Server lifecycle, notifications and reaction events for the caller |
 | LiveKit signaling | `ws://localhost:7880` | Returned by the voice-token endpoint |
 | LiveKit media | TCP `7881`, UDP `50000-50100` | Docker Compose development defaults |
 | S3/MinIO upload | value of `upload.url` | Presigned POST returned by attachment API |
@@ -45,14 +46,14 @@ The API is mounted as follows:
 
 ### 2.1 Authentication
 
-Application endpoints use the Better Auth **session cookie**.
+Application endpoints accept either the Better Auth **session cookie** or a **bearer session token**.
 
-- Browser clients must send credentials, for example `fetch(..., { credentials: "include" })`.
+- Browser clients should send credentials, for example `fetch(..., { credentials: "include" })`.
 - The cookie is set by Better Auth sign-in/OTP success responses.
 - When `BETTER_AUTH_URL` uses `https`, the session cookie is `Secure; SameSite=None` so a frontend on a different site can send it. The API must also list that exact frontend origin in `CORS_ORIGIN`.
-- `SameSite=None` still requires the browser to allow third-party cookies. If the frontend is cross-site and the browser blocks them, serve the frontend and API on the same site (for example `app.example.com` and `api.example.com`) or proxy the API through the frontend origin.
+- `SameSite=None` still requires the browser to allow third-party cookies. If the frontend is cross-site and the browser blocks them, use the bearer-token flow below.
 - Native/non-browser clients can send the cookie in a `Cookie` header.
-- Bearer-token authentication is **not enabled** in this deployment.
+- **Bearer tokens:** `POST /api/auth/sign-in/email`, `/sign-in/email-otp`, `/email-otp/verify-email`, and the OAuth popup completion return a session `token`. Send it as `Authorization: Bearer <token>` on REST requests. The static frontend stores it in `localStorage` under `ngumpul_bearer_token`; this is a deliberate fallback for browsers that reject third-party cookies.
 - A missing or expired session returns `401 { "error": "Unauthorized" }` on application endpoints.
 - Better Auth endpoints return Better Auth-shaped errors, usually `{ "message": "...", "code": "..." }`.
 
@@ -63,13 +64,14 @@ Protected endpoints are marked **Auth: required** below. Some also require frien
 ```http
 Content-Type: application/json
 Cookie: better-auth.session_token=...
+Authorization: Bearer <session-token>   # alternative to the cookie
 Origin: http://localhost:5173
 ```
 
 - `Content-Type: application/json` is required for JSON bodies.
 - The attachment upload is the exception: it is a `multipart/form-data` POST directly to S3/MinIO using the returned presigned fields.
 - Browser requests are subject to the CORS policy in section 2.6.
-- WebSocket browser handshakes include the cookie automatically; non-browser clients must send `Cookie`.
+- WebSocket browser handshakes include the cookie automatically; a cross-site frontend may append `?token=<session-token>` instead. Non-browser clients must send `Cookie` or `?token=`.
 
 ### 2.3 JSON body limit
 
@@ -210,6 +212,8 @@ Better Auth routes usually return:
 | `PATCH` | `/api/direct-messages/:messageId` | Edit own DM |
 | `DELETE` | `/api/direct-messages/:messageId` | Delete/hide a DM |
 | `POST` | `/api/direct-messages/:messageId/receipts` | Mark delivered/read |
+| `POST` | `/api/direct-messages/:messageId/reactions` | Add an emoji reaction to a DM |
+| `DELETE` | `/api/direct-messages/:messageId/reactions/:emoji` | Remove an emoji reaction from a DM |
 | `GET` | `/api/attachments` | List ready conversation attachments |
 | `POST` | `/api/attachments/uploads` | Start an upload and get a presigned POST |
 | `POST` | `/api/attachments/:attachmentId/complete` | Finalize an upload |
@@ -230,6 +234,8 @@ Better Auth routes usually return:
 | `POST` | `/api/servers/:serverId/channels/:channelId/messages` | Send a channel message |
 | `PATCH` | `/api/servers/:serverId/channels/:channelId/messages/:messageId` | Edit own channel message |
 | `DELETE` | `/api/servers/:serverId/channels/:channelId/messages/:messageId` | Delete/hide a channel message |
+| `POST` | `/api/servers/:serverId/channels/:channelId/messages/:messageId/reactions` | Add an emoji reaction to a channel message |
+| `DELETE` | `/api/servers/:serverId/channels/:channelId/messages/:messageId/reactions/:emoji` | Remove an emoji reaction from a channel message |
 | `GET` | `/api/servers/:serverId/members` | List server members |
 | `POST` | `/api/servers/:serverId/members` | Add a member directly |
 | `PATCH` | `/api/servers/:serverId/members/:userId` | Change a member role |
@@ -247,7 +253,9 @@ All paths below are relative to `/api/auth`.
 | `POST` | `/sign-up/email` | Create an email/password account |
 | `POST` | `/sign-in/email` | Sign in with email/password |
 | `POST` | `/sign-in/email-otp` | Sign in (or register) with an email OTP |
-| `POST` | `/sign-in/social` | Start Google OAuth sign-in |
+| `POST` | `/sign-in/social` | Start Google OAuth sign-in (same-site/native) |
+| `GET` | `/google/start` | Start Google OAuth with a first-party top-level navigation (fallback) |
+| `GET` | `/oauth-popup/start` | Start Google OAuth in a popup; completion posts the session token to `popupOrigin` |
 | `GET`, `POST` | `/callback/:id` | OAuth callback (`:id` = `google`) |
 | `GET`, `POST` | `/get-session` | Read the current session |
 | `POST` | `/sign-out` | Clear the session |
@@ -363,11 +371,12 @@ Returned by `/api/me`, Better Auth responses, and member/user lists.
   "editedAt": null,
   "deletedAt": null,
   "createdAt": "2026-11-23T14:10:00.000Z",
-  "updatedAt": "2026-11-23T14:10:00.000Z"
+  "updatedAt": "2026-11-23T14:10:00.000Z",
+  "reactions": []
 }
 ```
 
-`status` is `sent`, `delivered`, or `read`.
+`status` is `sent`, `delivered`, or `read`. `reactions` is an array of reaction summaries (section 4.8).
 
 List/send responses add a `replyTo` field containing the parent `DirectMessage` or `null`.
 
@@ -384,11 +393,12 @@ List/send responses add a `replyTo` field containing the parent `DirectMessage` 
   "editedAt": null,
   "deletedAt": null,
   "createdAt": "2026-11-23T14:12:00.000Z",
-  "updatedAt": "2026-11-23T14:12:00.000Z"
+  "updatedAt": "2026-11-23T14:12:00.000Z",
+  "reactions": []
 }
 ```
 
-List/send responses add `replyTo` (parent `ChannelMessage` or `null`).
+List/send responses add `replyTo` (parent `ChannelMessage` or `null`). `reactions` uses the same summaries as DMs (section 4.8).
 
 ### 4.5 Server and ServerChannel
 
@@ -460,7 +470,20 @@ Every attachment response uses the public shape below:
 
 `targetType` is `direct` (target is the peer user ID) or `channel` (target is the channel ID).
 
-`previewUrl` is a **public capability URL**. Anyone with that URL can view the attachment; see section 7.6.
+`previewUrl` is a **public capability URL**. Anyone with that URL can view the attachment; see section 5.9.
+
+### 4.8 Reaction summary
+
+```json
+{
+  "emoji": "👍",
+  "count": 2,
+  "userIds": ["user-a", "user-b"],
+  "me": true
+}
+```
+
+`me` is present in REST responses (including message list/send/edit) and reports whether the caller reacted with that emoji. It is omitted from WebSocket `message_reaction` events. The same emoji can be added only once per user per message; reactions are removed automatically when a message is deleted.
 
 ---
 
@@ -869,6 +892,32 @@ Response:
 
 Publishes a `receipt` event with the marker message record.
 
+#### `POST /api/direct-messages/:messageId/reactions`
+
+Body:
+
+```json
+{ "emoji": "👍" }
+```
+
+- caller must be a participant of the (non-deleted) DM and still have friend access (not blocked)
+- `emoji` is trimmed, 1–32 characters, and cannot contain control characters
+- adding the same emoji twice is idempotent
+- response `200` with the message ID and updated summaries:
+
+```json
+{
+  "messageId": "...",
+  "reactions": [{ "emoji": "👍", "count": 2, "userIds": ["user-a", "user-b"], "me": true }]
+}
+```
+
+Publishes a `message_reaction` `added` event to both participants and notifies the message sender when somebody else reacts. Errors: `400` invalid emoji/body, `401` unauthenticated, `403` blocked/unfriended, `404` message not found.
+
+#### `DELETE /api/direct-messages/:messageId/reactions/:emoji`
+
+`:emoji` is URL-encoded (for example `%F0%9F%91%8D`). The caller must be a participant with current access. Removing an absent reaction is idempotent; response `200` has the same shape as add. Publishes a `message_reaction` `removed` event only when a row was deleted.
+
 ### 5.6 Servers
 
 Access roles are hierarchical:
@@ -1210,6 +1259,24 @@ Response `200` with the updated message. Publishes `updated`.
 
 Response `204`. Errors: `400` invalid/missing scope, `403` not sender/manager, `404` channel/message/access, `502` attachment deletion failed.
 
+#### `POST /api/servers/:serverId/channels/:channelId/messages/:messageId/reactions`
+
+Body:
+
+```json
+{ "emoji": "❤️" }
+```
+
+- caller must currently be a member of the server and the channel must be a text channel
+- same emoji rules and idempotency as DM reactions
+- response `200` with `{ messageId, reactions }` (summaries include `me`)
+
+Publishes a `message_reaction` `added` event to every server member on their `/ws/user` socket and notifies the message sender. Errors: `400` invalid emoji/body, `401` unauthenticated, `404` channel/message/access.
+
+#### `DELETE /api/servers/:serverId/channels/:channelId/messages/:messageId/reactions/:emoji`
+
+URL-encode the emoji. Removing an absent reaction is idempotent. Response `200` with updated summaries; publishes `removed` only when a row was deleted.
+
 ### 5.9 Attachments
 
 #### Allowed types and size limits
@@ -1416,10 +1483,50 @@ The reset-link endpoints (`/request-password-reset`, `/reset-password/:token`) a
 
 #### Google flow (optional)
 
-1. `POST /sign-in/social` with `{ provider: "google", callbackURL, errorCallbackURL?, newUserCallbackURL? }`.
-2. Redirect the browser to the returned `url`.
-3. Google redirects to `GET/POST /callback/google?code=...&state=...`.
-4. Better Auth sets the session cookie and redirects to `callbackURL`.
+Recommended for a frontend on a **different origin**: open a popup to the API's popup starter. The popup is first-party to `BETTER_AUTH_URL`, so Better Auth's state and opener-marker cookies are not third-party.
+
+1. Generate a random nonce in the frontend and open:
+
+```text
+GET /api/auth/oauth-popup/start?provider=google
+  &popupOrigin=<frontend-origin>
+  &popupNonce=<random-nonce>
+  &callbackURL=<frontend-url>
+  &errorCallbackURL=<frontend-error-url>
+```
+
+`popupOrigin` must be listed in `CORS_ORIGIN` (or `BETTER_AUTH_URL`). The response is a `302` to Google.
+
+2. The user completes Google. Google redirects to `GET/POST /callback/google?code=...&state=...`.
+3. Better Auth renders a small completion page on the API origin. It posts one message to `window.opener`:
+
+```json
+{
+  "type": "better-auth:oauth-popup",
+  "targetOrigin": "http://localhost:5173",
+  "nonce": "<same-nonce>",
+  "token": "<session-token>",
+  "redirectTo": "http://localhost:5173/..."
+}
+```
+
+On failure, `token` is absent and `error: { code, description }` is present. The completion page has a strict CSP and does not expose the token in the URL.
+
+4. The opener must check `event.origin` equals the API origin, check `data.type === "better-auth:oauth-popup"`, check `data.nonce`, store `data.token`, and close the popup. Then send `Authorization: Bearer <token>` on REST and `?token=<token>` on WebSockets.
+
+This is the flow implemented in `pbp-client/pages/auth/login.js` and `pbp-client/assets/js/api.js` (localStorage key `ngumpul_bearer_token`). Allow popups for the frontend origin.
+
+The API sends `Cross-Origin-Opener-Policy: unsafe-none` on `/api/auth/oauth-popup/*` and `/api/auth/callback/*`; otherwise Hono's default `same-origin` COOP would sever `window.opener` and the completion page could not post the token. All other API responses keep `same-origin`.
+
+**Top-level fallback:** navigate the browser to:
+
+```text
+GET /api/auth/google/start?callbackURL=<frontend-url>&errorCallbackURL=<frontend-error-url>
+```
+
+The API validates both redirect URLs against the origins in `CORS_ORIGIN`/`BETTER_AUTH_URL`, stores the state cookie first-party, and responds with a `302` to Google. Invalid or missing callback parameters return `400 {"error":"Invalid callbackURL"}`; an upstream failure returns `502`; an unexpected failure returns `500`. This fallback fixes OAuth state but still sets the session cookie cross-site; if the browser blocks third-party cookies, use the popup/bearer flow.
+
+`/sign-in/social` remains available for same-origin and native clients.
 
 The Google OAuth redirect URI must be registered as:
 
@@ -1768,15 +1875,17 @@ The app WebSocket server is attached to the same HTTP server as the REST API. It
 ```text
 ws://localhost:3000/ws/dm?peerId=<userId>
 ws://localhost:3000/ws/channel?channelId=<channelId>
+ws://localhost:3000/ws/user
 ```
 
 - `peerId`: the other participant in a friend conversation.
 - `channelId`: a server text channel. The server ID is inferred from the channel; do not send it.
+- `/ws/user` is a per-user socket for server lifecycle events, notifications, and reactions. It needs no query parameter beyond the optional token.
 - Voice channels are not valid for `/ws/channel`; use LiveKit for voice.
 
 ### 7.2 Authentication and Origin rules
 
-Authentication uses the Better Auth session cookie. Browsers send it automatically on the WebSocket handshake; non-browser clients must send a `Cookie` header.
+Authentication uses the Better Auth session cookie or, for cross-site browser clients, `?token=<session-token>` appended to the WebSocket URL. Browsers send cookies automatically on the handshake; non-browser clients must send a `Cookie` header or token query parameter. Tokens in URLs can appear in browser history/proxy logs; this is a local fallback for clients that cannot set an `Authorization` header on a WebSocket handshake.
 
 Origin handling:
 
@@ -1807,6 +1916,11 @@ Handshake failures are plain HTTP responses, not WebSocket close frames:
 - caller must be a member of the server that owns the channel
 - channel must be `kind: "text"`
 
+`/ws/user`:
+
+- only requires a valid session
+- receives events addressed to the caller by user ID; it does not grant access to any conversation or server by itself
+
 Channel access is revalidated every 60 seconds. Sockets are also closed immediately when:
 
 - a member is removed from the server
@@ -1829,6 +1943,12 @@ Channel:
 
 ```json
 { "type": "connected", "channelId": "...", "serverId": "..." }
+```
+
+User:
+
+```json
+{ "type": "connected", "userId": "user-a" }
 ```
 
 ### 7.5 Events
@@ -1854,12 +1974,13 @@ Channel:
     "editedAt": null,
     "deletedAt": null,
     "createdAt": "...",
-    "updatedAt": "..."
+    "updatedAt": "...",
+    "reactions": []
   }
 }
 ```
 
-`event` is `created`, `updated`, `deleted`, or `receipt`.
+`event` is `created`, `updated`, `deleted`, or `receipt`. Message objects include the same `reactions` summaries as REST.
 
 - `created`: a new message was sent.
 - `updated`: text or attachment reference changed.
@@ -1886,16 +2007,84 @@ A DM socket receives events for both directions of its conversation, including t
     "editedAt": null,
     "deletedAt": null,
     "createdAt": "...",
-    "updatedAt": "..."
+    "updatedAt": "...",
+    "reactions": []
   }
 }
 ```
 
-`event` is `created`, `updated`, or `deleted`.
+`event` is `created`, `updated`, or `deleted`. Message objects include `reactions`.
 
 `updated` and `deleted` events do not include `replyTo`; clients should resolve the parent from their cache or REST list.
 
-#### Client-to-server messages
+### 7.6 User event envelopes (`/ws/user`)
+
+Every event is pushed only to the recipients listed by the server. A client can receive the same event type on multiple sockets; deduplicate by `type` plus `messageId`/`event` if needed.
+
+Reaction added/removed:
+
+```json
+{
+  "type": "message_reaction",
+  "event": "added",
+  "scope": "channel",
+  "messageId": "...",
+  "userId": "user-b",
+  "emoji": "👍",
+  "reactions": [{ "emoji": "👍", "count": 1, "userIds": ["user-b"] }],
+  "serverId": "...",
+  "channelId": "...",
+  "createdAt": "..."
+}
+```
+
+For DMs, `serverId`/`channelId` are replaced by `senderId`/`recipientId`. `reactions` never includes `me`; the processing client must derive it from `userId`.
+
+Server lifecycle:
+
+```json
+{
+  "type": "server_event",
+  "event": "server.member_added",
+  "serverId": "...",
+  "actorId": "user-a",
+  "server": { "...": "ServerSummary" },
+  "member": { "userId": "user-b", "role": "member" },
+  "createdAt": "..."
+}
+```
+
+`event` is one of:
+
+- `server.created`, `server.updated`, `server.deleted`
+- `server.channel_created`, `server.channel_updated`, `server.channel_deleted`
+- `server.member_added`, `server.member_updated`, `server.member_removed`
+- `server.invite_created` (sent only to the creating user)
+
+Optional fields: `server`, `channel`, `member`. The event is sent to current members; deletion events use the member list captured before deletion.
+
+Notification:
+
+```json
+{
+  "type": "notification",
+  "notification": {
+    "id": "...",
+    "kind": "channel_message",
+    "title": "Pesan baru",
+    "body": "Alice: hello",
+    "serverId": "...",
+    "channelId": "...",
+    "messageId": "...",
+    "actorId": "user-a",
+    "createdAt": "..."
+  }
+}
+```
+
+`kind` is `direct_message`, `channel_message`, `reaction`, `server_added`, or `member_joined`. Notifications are **ephemeral** (not stored in the database) and are currently delivered only while the user has a `/ws/user` socket open. Title/body are server-generated display strings, not a stable machine contract.
+
+### 7.7 Client-to-server messages
 
 The server does not accept application messages on these sockets. Any client message receives:
 
@@ -1908,7 +2097,7 @@ The server does not accept application messages on these sockets. Any client mes
 
 The maximum client payload is 16 KiB.
 
-### 7.6 Revocation close code
+### 7.8 Revocation close code
 
 Access revocations use WebSocket close code **4003** with one of these reasons:
 
@@ -1922,7 +2111,7 @@ You no longer have access to this conversation
 
 A client should treat 4003 as terminal for that subscription and re-check authorization before reconnecting.
 
-### 7.7 Reconnection and catch-up
+### 7.9 Reconnection and catch-up
 
 There is no resume protocol and no event replay. On reconnect:
 
@@ -2087,7 +2276,8 @@ Never expose `LIVEKIT_API_SECRET` to the browser. The client only receives the s
 | `DATABASE_URL` | yes | PostgreSQL connection |
 | `REDIS_URL` | no (default `redis://localhost:6379`) | Realtime pub/sub |
 | `SMTP_HOST`, `SMTP_PORT` | yes for email | OTP delivery |
-| `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | no | SMTP auth/TLS |
+| `SMTP_HOST_DOCKER`, `SMTP_PORT_DOCKER` | yes for email in Compose | Container overrides for the SMTP host/port; must point at the real provider, not Mailpit, in production |
+| `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | no | SMTP auth/TLS; `SMTP_SECURE=true` for implicit TLS on port 465 |
 | `EMAIL_FROM` | no | From address for OTP mail |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no | Enable Google OAuth when both set |
 | `LIVEKIT_PUBLIC_URL` | yes for voice | Signaling URL returned to clients |

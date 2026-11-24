@@ -7,8 +7,11 @@ import { attachment } from "../db/schema/attachment";
 import { profile, user } from "../db/schema/auth";
 import { communityServer, serverChannel, serverInvite, serverMember } from "../db/schema/community";
 import { isUniqueViolation } from "../lib/db-errors";
+import type { ChannelSummary, MemberSummary, ServerSummary } from "../models/realtime-event";
 import { getSessionUserId } from "../lib/request-auth";
+import { sendNotification } from "../services/notification.service";
 import { deleteObject } from "../services/object-storage.service";
+import { publishServerEvent, getServerMemberIds } from "../services/server-event.service";
 import { revokeChannel, revokeServer, revokeUserFromServer } from "../services/socket-registry.service";
 
 type ServerRole = "owner" | "admin" | "member";
@@ -65,6 +68,7 @@ export async function createServer(c: Context) {
         });
         return server;
     });
+    await publishServerEvent(created.id, userId, "server.created", { server: toServerSummary(created) });
     return c.json({ server: created }, 201);
 }
 
@@ -90,6 +94,7 @@ export async function createServerInvite(c: Context) {
     const code = randomBytes(18).toString("base64url");
     const expiresAt = typeof expiresInSeconds === "number" ? new Date(Date.now() + expiresInSeconds * 1000) : null;
     await db.insert(serverInvite).values({ code, serverId, createdBy: userId, expiresAt, maxUses: maxUses as number | null });
+    await publishServerEvent(serverId, userId, "server.invite_created", {}, [userId]);
     return c.json({ invite: { code, serverId, expiresAt, maxUses } }, 201);
 }
 
@@ -121,6 +126,24 @@ export async function joinServerWithInvite(c: Context) {
             await tx.insert(serverMember).values({ serverId: invite.serverId, userId, role: "member" });
             return true;
         });
+        if (joined) {
+            const memberIds = await getServerMemberIds(invite.serverId);
+            await publishServerEvent(invite.serverId, userId, "server.member_added", {
+                member: { userId, role: "member" },
+            }, memberIds);
+            const [server] = await db.select({ ownerId: communityServer.ownerId, name: communityServer.name })
+                .from(communityServer).where(eq(communityServer.id, invite.serverId)).limit(1);
+            if (server && server.ownerId !== userId) {
+                await sendNotification({
+                    recipients: [server.ownerId],
+                    kind: "member_joined",
+                    title: "Anggota baru",
+                    body: `Seseorang bergabung ke ${server.name}`,
+                    serverId: invite.serverId,
+                    actorId: userId,
+                });
+            }
+        }
         return joined
             ? c.json({ serverId: invite.serverId, joined: true }, 201)
             : c.json({ error: "Invite has expired or reached its use limit" }, 410);
@@ -178,6 +201,7 @@ export async function createServerChannel(c: Context) {
             position: (lastChannel?.position ?? -1) + 1,
             createdBy: userId,
         }).returning();
+        await publishServerEvent(serverId, userId, "server.channel_created", { channel: toChannelSummary(channel) });
         return c.json({ channel }, 201);
     } catch (error) {
         if (isUniqueViolation(error)) return c.json({ error: "A channel with that name already exists" }, 409);
@@ -247,6 +271,7 @@ export async function updateServer(c: Context) {
 
     const [server] = await db.update(communityServer).set(patch)
         .where(eq(communityServer.id, serverId)).returning();
+    if (server) await publishServerEvent(serverId, userId, "server.updated", { server: toServerSummary(server) });
     return server ? c.json({ server }) : c.json({ error: "Server not found" }, 404);
 }
 
@@ -260,9 +285,11 @@ export async function deleteServer(c: Context) {
 
     const channels = await db.select({ id: serverChannel.id }).from(serverChannel)
         .where(eq(serverChannel.serverId, serverId));
+    const memberIds = await getServerMemberIds(serverId);
     revokeServer(serverId);
     await db.delete(communityServer).where(eq(communityServer.id, serverId));
     await deleteChannelAttachments(channels.map(channel => channel.id));
+    await publishServerEvent(serverId, userId, "server.deleted", {}, memberIds);
     return c.body(null, 204);
 }
 
@@ -309,6 +336,7 @@ export async function updateServerChannel(c: Context) {
         const [updated] = await db.update(serverChannel).set(patch)
             .where(and(eq(serverChannel.id, channelId), eq(serverChannel.serverId, serverId)))
             .returning();
+        if (updated) await publishServerEvent(serverId, userId, "server.channel_updated", { channel: toChannelSummary(updated) });
         return updated ? c.json({ channel: updated }) : c.json({ error: "Channel not found" }, 404);
     } catch (error) {
         if (isUniqueViolation(error)) return c.json({ error: "A channel with that name already exists" }, 409);
@@ -325,14 +353,16 @@ export async function deleteServerChannel(c: Context) {
     if (!role) return c.json({ error: "Server not found" }, 404);
     if (role !== "owner" && role !== "admin") return c.json({ error: "Server admin permission required" }, 403);
 
-    const [channel] = await db.select({ id: serverChannel.id }).from(serverChannel)
+    const [channel] = await db.select().from(serverChannel)
         .where(and(eq(serverChannel.id, channelId), eq(serverChannel.serverId, serverId)))
         .limit(1);
     if (!channel) return c.json({ error: "Channel not found" }, 404);
 
+    const memberIds = await getServerMemberIds(serverId);
     revokeChannel(channelId);
     await db.delete(serverChannel).where(eq(serverChannel.id, channelId));
     await deleteChannelAttachments([channelId]);
+    await publishServerEvent(serverId, userId, "server.channel_deleted", { channel: toChannelSummary(channel) }, memberIds);
     return c.body(null, 204);
 }
 
@@ -390,6 +420,18 @@ export async function addServerMember(c: Context) {
         throw error;
     });
     if (!member) return c.json({ error: "User is already a member of this server" }, 409);
+    const memberIds = await getServerMemberIds(serverId);
+    await publishServerEvent(serverId, userId, "server.member_added", {
+        member: { userId: target.id, username: target.username, role: member.role as "member", joinedAt: member.joinedAt.toISOString() },
+    }, memberIds);
+    await sendNotification({
+        recipients: [target.id],
+        kind: "server_added",
+        title: "Ditambahkan ke server",
+        body: "Kamu ditambahkan ke sebuah server",
+        serverId,
+        actorId: userId,
+    });
     return c.json({ member: { userId: target.id, username: target.username, role: member.role } }, 201);
 }
 
@@ -419,6 +461,9 @@ export async function updateServerMember(c: Context) {
     const [member] = await db.update(serverMember).set({ role: newRole })
         .where(and(eq(serverMember.serverId, serverId), eq(serverMember.userId, targetUserId)))
         .returning();
+    await publishServerEvent(serverId, userId, "server.member_updated", {
+        member: { userId: targetUserId, role: newRole, joinedAt: member?.joinedAt.toISOString() },
+    });
     return c.json({ member });
 }
 
@@ -447,12 +492,52 @@ export async function removeServerMember(c: Context) {
         }
     }
 
+    const memberIds = await getServerMemberIds(serverId);
     await db.delete(serverMember).where(and(
         eq(serverMember.serverId, serverId),
         eq(serverMember.userId, targetUserId),
     ));
     revokeUserFromServer(targetUserId, serverId);
+    await publishServerEvent(serverId, userId, "server.member_removed", {
+        member: { userId: targetUserId, role: target.role as "owner" | "admin" | "member" },
+    }, memberIds);
+    if (targetUserId !== userId) {
+        await sendNotification({
+            recipients: [targetUserId],
+            kind: "member_joined",
+            title: "Dikeluarkan dari server",
+            body: "Kamu tidak lagi menjadi anggota server ini",
+            serverId,
+            actorId: userId,
+        });
+    }
     return c.body(null, 204);
+}
+
+function toServerSummary(row: typeof communityServer.$inferSelect): ServerSummary {
+    return {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        icon: row.icon,
+        ownerId: row.ownerId,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+    };
+}
+
+function toChannelSummary(row: typeof serverChannel.$inferSelect): ChannelSummary {
+    return {
+        id: row.id,
+        serverId: row.serverId,
+        name: row.name,
+        description: row.description,
+        kind: row.kind as "text" | "voice",
+        position: row.position,
+        createdBy: row.createdBy,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+    };
 }
 
 async function deleteChannelAttachments(channelIds: string[]) {
