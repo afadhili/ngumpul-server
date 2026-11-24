@@ -1,12 +1,102 @@
 import { ApolloServer, HeaderMap } from "@apollo/server";
-import { buildSchema } from "drizzle-graphql";
+import {
+    GraphQLBoolean,
+    GraphQLID,
+    GraphQLNonNull,
+    GraphQLObjectType,
+    GraphQLSchema,
+    GraphQLString,
+} from "graphql";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import db from "../db";
+import db from "../db/index";
+import { profile, user } from "../db/schema/auth";
 import { getSessionUserId } from "../lib/request-auth";
+import { eq } from "drizzle-orm";
 
-const { schema } = buildSchema(db);
-const apolloServer = new ApolloServer({ schema });
+type GraphqlContext = { userId: string };
+
+const userType = new GraphQLObjectType({
+    name: "User",
+    fields: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        name: { type: new GraphQLNonNull(GraphQLString) },
+        email: { type: new GraphQLNonNull(GraphQLString) },
+        username: { type: GraphQLString },
+        emailVerified: { type: GraphQLBoolean },
+        image: { type: GraphQLString },
+    },
+});
+
+const profileType = new GraphQLObjectType({
+    name: "Profile",
+    fields: {
+        displayName: { type: GraphQLString },
+        bio: { type: GraphQLString },
+        avatar: { type: GraphQLString },
+        banner: { type: GraphQLString },
+        location: { type: GraphQLString },
+        website: { type: GraphQLString },
+        pronouns: { type: GraphQLString },
+        isPublic: { type: new GraphQLNonNull(GraphQLBoolean) },
+        photoVisibility: { type: new GraphQLNonNull(GraphQLString) },
+        onlineStatusVisibility: { type: new GraphQLNonNull(GraphQLString) },
+        lastSeenVisibility: { type: new GraphQLNonNull(GraphQLString) },
+    },
+});
+
+const schema = new GraphQLSchema({
+    query: new GraphQLObjectType({
+        name: "Query",
+        fields: {
+            me: {
+                type: userType,
+                resolve: async (_source, _args, context: GraphqlContext) => {
+                    const [currentUser] = await db
+                        .select({
+                            id: user.id,
+                            name: user.name,
+                            email: user.email,
+                            username: user.username,
+                            emailVerified: user.emailVerified,
+                            image: user.image,
+                        })
+                        .from(user)
+                        .where(eq(user.id, context.userId))
+                        .limit(1);
+
+                    return currentUser ?? null;
+                },
+            },
+            myProfile: {
+                type: profileType,
+                resolve: async (_source, _args, context: GraphqlContext) => {
+                    const [currentProfile] = await db
+                        .select({
+                            displayName: profile.displayName,
+                            bio: profile.bio,
+                            avatar: profile.avatar,
+                            banner: profile.banner,
+                            location: profile.location,
+                            website: profile.website,
+                            pronouns: profile.pronouns,
+                            isPublic: profile.isPublic,
+                            photoVisibility: profile.photoVisibility,
+                            onlineStatusVisibility: profile.onlineStatusVisibility,
+                            lastSeenVisibility: profile.lastSeenVisibility,
+                        })
+                        .from(profile)
+                        .where(eq(profile.userId, context.userId))
+                        .limit(1);
+
+                    return currentProfile ?? null;
+                },
+            },
+        },
+    }),
+});
+
+const apolloServer = new ApolloServer<GraphqlContext>({ schema });
 await apolloServer.start();
 
 async function handleGraphqlRequest(c: Context) {

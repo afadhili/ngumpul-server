@@ -199,9 +199,6 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.4.2
-      drizzle-graphql:
-        specifier: ^0.8.5
-        version: 0.8.5(drizzle-orm@1.0.0-rc.6(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7))(graphql@16.15.0)
       drizzle-kit:
         specifier: 1.0.0-rc.6
         version: 1.0.0-rc.6(drizzle-orm@1.0.0-rc.6(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7))
@@ -938,12 +935,6 @@ packages:
     resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
 
-  drizzle-graphql@0.8.5:
-    resolution: {integrity: sha512-MAqBwmj/kSZWIUQdYCsYtoZWxxVRcXWkhsqt0b6fY1XC171WHBK/jZiVWepO04tDsdaDuTvzlufDHJqNl3VVWQ==}
-    peerDependencies:
-      drizzle-orm: '>=0.30.9'
-      graphql: '>=16.3.0'
-
   drizzle-kit@1.0.0-rc.6:
     resolution: {integrity: sha512-UNwJcuwG8Iw/5M/aKmmzaX61OQgX+gj87MIEZE4J/2pSDCnQJHjhFhmPq8YNHAHnY81bbGsqiWxlyiybDD1E/g==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1165,12 +1156,6 @@ packages:
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
-
-  graphql-parse-resolve-info@4.14.1:
-    resolution: {integrity: sha512-WKHukfEuZamP1ZONR84b8iT+4sJgEhtXMDArm1jpXEsU2vTb5EgkCZ4Obfl+v09oNTKXm0CJjPfBUZ5jcJ2Ykg==}
-    engines: {node: '>=8.6'}
-    peerDependencies:
-      graphql: '>=0.9 <0.14 || ^14.0.2 || ^15.4.0 || ^16.3.0'
 
   graphql@16.15.0:
     resolution: {integrity: sha512-32kz9FecohDiC/tgcViwnRXM7HFBVTPiW7pHO+DikKOI5KjhU/jNULOReXsrFqt2WAYbE9xFXsTffJw6iTO8qw==}
@@ -2146,14 +2131,6 @@ snapshots:
 
   dotenv@17.4.2: {}
 
-  drizzle-graphql@0.8.5(drizzle-orm@1.0.0-rc.6(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7))(graphql@16.15.0):
-    dependencies:
-      drizzle-orm: 1.0.0-rc.6(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7)
-      graphql: 16.15.0
-      graphql-parse-resolve-info: 4.14.1(graphql@16.15.0)
-    transitivePeerDependencies:
-      - supports-color
-
   drizzle-kit@1.0.0-rc.6(drizzle-orm@1.0.0-rc.6(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7)):
     optionalDependencies:
       drizzle-orm: 1.0.0-rc.6(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.7)
@@ -2252,14 +2229,6 @@ snapshots:
       es-object-atoms: 1.1.2
 
   gopd@1.2.0: {}
-
-  graphql-parse-resolve-info@4.14.1(graphql@16.15.0):
-    dependencies:
-      debug: 4.4.3
-      graphql: 16.15.0
-      tslib: 2.9.1
-    transitivePeerDependencies:
-      - supports-color
 
   graphql@16.15.0: {}
 

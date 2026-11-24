@@ -367,11 +367,18 @@ LiveKit's own signaling/media endpoints are served by LiveKit, not by this REST 
 ### 3.5 GraphQL endpoint
 
 The GraphQL endpoint is served by Apollo Server at `POST /graphql` and `GET /graphql`.
-It uses `buildSchema(db)` from `drizzle-graphql`, so the available GraphQL types,
-queries, and mutations are generated from the Drizzle schema configured in
-`src/db/relations.ts`. Consult the generated schema (Apollo Server's schema
-introspection) for exact operation and field names as that schema changes with
-the database model.
+Its schema is defined in `src/routes/graphql.routes.ts`; resolvers use Drizzle to
+read data for the authenticated user. The available read-only queries are:
+
+| Query | Fields | Result |
+| --- | --- | --- |
+| `me` | `id`, `name`, `email`, `username`, `emailVerified`, `image` | Current user's account, or `null` if it no longer exists |
+| `myProfile` | `displayName`, `bio`, `avatar`, `banner`, `location`, `website`, `pronouns`, `isPublic`, `photoVisibility`, `onlineStatusVisibility`, `lastSeenVisibility` | Current user's profile, or `null` if none exists |
+
+The Drizzle `drizzle-graphql` generator documented by Drizzle is not compatible
+with this server's `drizzle-orm@1.0.0-rc.6` API, so the route uses Apollo's
+explicit GraphQL schema with Drizzle query resolvers instead. There are no
+mutations on this endpoint.
 
 Authentication is required for every GraphQL request. Send the Better Auth
 session cookie or `Authorization: Bearer <session-token>` using the conventions
@@ -394,7 +401,7 @@ Content-Type: application/json
 Cookie: better-auth.session_token=...
 
 {
-  "query": "query { ... }",
+  "query": "query { me { id name username } myProfile { displayName bio } }",
   "variables": {},
   "operationName": "OptionalOperationName"
 }
