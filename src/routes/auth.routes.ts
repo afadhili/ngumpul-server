@@ -1,30 +1,10 @@
 import { Hono, type Context } from "hono";
 import { handleAuth } from "../controllers/auth.controller";
 import { auth } from "../lib/auth";
+import { isTrustedWebOrigin } from "../lib/web-origins";
 import { query, redirectResponse, rest, uri } from "../openapi/describe";
 
 const authRoutes = new Hono();
-
-function trustedOrigins(): string[] {
-    return [process.env.CORS_ORIGIN, process.env.BETTER_AUTH_URL]
-        .filter((value): value is string => Boolean(value))
-        .map(value => {
-            try {
-                return new URL(value).origin;
-            } catch {
-                return null;
-            }
-        })
-        .filter((value): value is string => Boolean(value));
-}
-
-function isTrustedRedirect(value: string): boolean {
-    try {
-        return trustedOrigins().includes(new URL(value).origin);
-    } catch {
-        return false;
-    }
-}
 
 /**
  * Starts Google OAuth with a top-level navigation.
@@ -50,7 +30,7 @@ async function startGoogleSignIn(c: Context) {
     const callbackURL = c.req.query("callbackURL");
     const errorCallbackURL = c.req.query("errorCallbackURL") ?? callbackURL;
 
-    if (!callbackURL || !errorCallbackURL || !isTrustedRedirect(callbackURL) || !isTrustedRedirect(errorCallbackURL)) {
+    if (!callbackURL || !errorCallbackURL || !isTrustedWebOrigin(callbackURL) || !isTrustedWebOrigin(errorCallbackURL)) {
         return c.json({ error: "Invalid callbackURL" }, 400);
     }
 

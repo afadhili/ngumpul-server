@@ -8,6 +8,7 @@ import { bearer, emailOTP, openAPI } from "better-auth/plugins";
 import "dotenv/config";
 import { db } from "../db/index";
 import * as schema from "../db/schema/auth";
+import { browserOrigins } from "./web-origins";
 import { sendVerificationOtpEmail } from "../services/email.service";
 
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -51,7 +52,7 @@ const authOptions: Omit<BetterAuthOptions, "user" | "plugins"> & {
     secret,
     baseURL,
     trustedOrigins: [
-        ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
+        ...browserOrigins,
         `${expoScheme}://`,
         `${electronScheme}:/`,
     ],

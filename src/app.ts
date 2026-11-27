@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import type { ApplyGlobalResponse } from "hono/client";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
+import { browserOrigins } from "./lib/web-origins";
 import { registerOpenApi } from "./openapi/register";
 import { apiRoutes } from "./routes/api.routes";
 import { authRoutes } from "./routes/auth.routes";
@@ -10,7 +11,6 @@ import { healthRoutes } from "./routes/health.routes";
 import { serverRoutes } from "./routes/server.routes";
 
 const app = new Hono();
-const browserOrigin = process.env.CORS_ORIGIN;
 const oneMiB = 1024 * 1024;
 const bodyLimitError = { error: "Request body must not exceed 1 MiB" };
 type WithBodyLimit<Routes> = ApplyGlobalResponse<Routes, { 413: { json: typeof bodyLimitError } }>;
@@ -18,7 +18,7 @@ type WithBodyLimit<Routes> = ApplyGlobalResponse<Routes, { 413: { json: typeof b
 app.use("*", secureHeaders({ overwrite: false }));
 
 const apiCors = cors({
-    origin: origin => origin === browserOrigin ? origin : "*",
+    origin: origin => browserOrigins.has(origin) ? origin : "*",
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length", "set-auth-token"],
@@ -31,7 +31,7 @@ app.use("/api/*", async (c, next) => {
         c.header("Vary", "Origin", { append: true });
         return next();
     }
-    if (origin === browserOrigin) {
+    if (browserOrigins.has(origin)) {
         c.header("Access-Control-Allow-Credentials", "true");
     }
     return apiCors(c, next);

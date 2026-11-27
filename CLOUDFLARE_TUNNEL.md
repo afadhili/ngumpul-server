@@ -135,12 +135,12 @@ Set the public URLs in `.env` and restart the app:
 
 ```env
 BETTER_AUTH_URL=https://api.afadhili.my.id
-CORS_ORIGIN=https://your-frontend.example.com
+CORS_ORIGIN=http://localhost:5173,https://ngumpul.afadhili.my.id
 LIVEKIT_PUBLIC_URL=wss://livekit.afadhili.my.id
 S3_PUBLIC_ENDPOINT=https://storage.afadhili.my.id
 ```
 
-`CORS_ORIGIN` is the exact frontend origin. Use `CORS_ORIGIN=http://localhost:5173` when Vite calls the public API from your machine. Compose also passes that value to RustFS as `RUSTFS_CORS_ALLOWED_ORIGINS`. Apply the settings on the machine running the public API by recreating both containers:
+`CORS_ORIGIN` accepts a comma-separated list of frontend origins. Include `http://localhost:5173` to use Vite against the public API and `https://ngumpul.afadhili.my.id` for the static web client. Compose also passes that value to RustFS as `RUSTFS_CORS_ALLOWED_ORIGINS`. Apply the settings on the machine running the public API by recreating both containers:
 
 ```sh
 docker compose up -d --no-deps --force-recreate app rustfs

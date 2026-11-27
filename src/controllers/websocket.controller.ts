@@ -2,6 +2,7 @@ import { STATUS_CODES, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import { auth } from "../lib/auth";
+import { isTrustedWebOrigin } from "../lib/web-origins";
 import { getChannelAccess } from "../lib/channel-access";
 import { canAccessDirectConversation } from "../lib/direct-conversation";
 import { onUserEvent, publishUserEvent } from "../services/event.service";
@@ -260,19 +261,7 @@ function isTrustedWebSocketOrigin(request: IncomingMessage) {
     // Browsers can attach cookies even when a different origin opens the socket.
     if (!origin) return true;
 
-    const trusted = [process.env.CORS_ORIGIN, process.env.BETTER_AUTH_URL]
-        .filter((value): value is string => Boolean(value))
-        .map(toOrigin)
-        .filter((value): value is string => Boolean(value));
-    return trusted.includes(toOrigin(origin) ?? "");
-}
-
-function toOrigin(value: string) {
-    try {
-        return new URL(value).origin;
-    } catch {
-        return null;
-    }
+    return isTrustedWebOrigin(origin);
 }
 
 function reject(socket: Duplex, status: number, message: string) {
