@@ -64,13 +64,16 @@ export function attachWebSocket(server: Server) {
     function upgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
         track((async () => {
             const url = new URL(request.url ?? "/", "http://localhost");
-            if (!isTrustedWebSocketOrigin(request)) return reject(socket, 403, "Forbidden origin");
+            // Browsers pass the token in the URL because they cannot set Authorization here.
+            const headerToken = request.headers.authorization?.match(/^Bearer +(.+)$/i)?.[1]?.trim();
+            const token = url.searchParams.get("token")?.trim() || headerToken;
+            if (!token && !isTrustedWebSocketOrigin(request)) return reject(socket, 403, "Forbidden origin");
 
             let scope: SocketScope;
             if (url.pathname === "/ws/channel") {
                 const channelId = url.searchParams.get("channelId")?.trim() ?? "";
                 if (!channelId) return reject(socket, 400, "channelId is required");
-                const session = await readSession(request, url.searchParams.get("token"));
+                const session = await readSession(request, token);
                 if (!session) return reject(socket, 401, "Unauthorized");
                 const access = await getChannelAccess(session.user.id, channelId);
                 if (!access || access.kind !== "text") return reject(socket, 403, "Forbidden");
@@ -78,12 +81,12 @@ export function attachWebSocket(server: Server) {
             } else if (url.pathname === "/ws/dm") {
                 const peerId = url.searchParams.get("peerId")?.trim() ?? "";
                 if (!peerId) return reject(socket, 400, "peerId is required");
-                const session = await readSession(request, url.searchParams.get("token"));
+                const session = await readSession(request, token);
                 if (!session) return reject(socket, 401, "Unauthorized");
                 if (!await canAccessDirectConversation(session.user.id, peerId)) return reject(socket, 403, "Forbidden");
                 scope = { type: "direct", userId: session.user.id, peerId };
             } else if (url.pathname === "/ws/user") {
-                const session = await readSession(request, url.searchParams.get("token"));
+                const session = await readSession(request, token);
                 if (!session) return reject(socket, 401, "Unauthorized");
                 scope = { type: "user", userId: session.user.id };
             } else {
@@ -237,23 +240,23 @@ async function handleClientMessage(
     }
 }
 
-async function readSession(request: IncomingMessage, token?: string | null) {
+async function readSession(request: IncomingMessage, token: string | undefined) {
     const headers = new Headers();
     for (const [key, value] of Object.entries(request.headers)) {
         if (typeof value === "string") headers.set(key, value);
         else if (Array.isArray(value)) headers.set(key, value.join(", "));
     }
-    // Browsers cannot set Authorization on WebSocket handshakes, so accept the
-    // same session token as a query parameter for cross-site clients.
-    if (token) headers.set("authorization", `Bearer ${token}`);
+    if (token) {
+        // An explicit token must authenticate on its own before accepting any origin.
+        headers.delete("cookie");
+        headers.set("authorization", `Bearer ${token}`);
+    }
     return auth.api.getSession({ headers });
 }
 
 function isTrustedWebSocketOrigin(request: IncomingMessage) {
     const origin = request.headers.origin;
-    // Non-browser clients do not send Origin; browsers always do. Browsers also
-    // attach cookies to WebSocket handshakes regardless of the opener origin,
-    // so a mismatched Origin must be rejected to prevent cross-site hijacking.
+    // Browsers can attach cookies even when a different origin opens the socket.
     if (!origin) return true;
 
     const trusted = [process.env.CORS_ORIGIN, process.env.BETTER_AUTH_URL]

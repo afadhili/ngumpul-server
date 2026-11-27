@@ -10,30 +10,38 @@ import { healthRoutes } from "./routes/health.routes";
 import { serverRoutes } from "./routes/server.routes";
 
 const app = new Hono();
-const allowedOrigin = process.env.CORS_ORIGIN;
+const browserOrigin = process.env.CORS_ORIGIN;
 const oneMiB = 1024 * 1024;
 const bodyLimitError = { error: "Request body must not exceed 1 MiB" };
 type WithBodyLimit<Routes> = ApplyGlobalResponse<Routes, { 413: { json: typeof bodyLimitError } }>;
 
 app.use("*", secureHeaders({ overwrite: false }));
 
+const apiCors = cors({
+    origin: origin => origin === browserOrigin ? origin : "*",
+    allowHeaders: ["Content-Type", "Authorization"],
+    allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    exposeHeaders: ["Content-Length", "set-auth-token"],
+    maxAge: 600,
+});
+
+app.use("/api/*", async (c, next) => {
+    const origin = c.req.header("Origin");
+    if (!origin) {
+        c.header("Vary", "Origin", { append: true });
+        return next();
+    }
+    if (origin === browserOrigin) {
+        c.header("Access-Control-Allow-Credentials", "true");
+    }
+    return apiCors(c, next);
+});
+
 app.use(
     "/api/*",
     bodyLimit({
         maxSize: oneMiB,
         onError: c => c.json(bodyLimitError, 413),
-    }),
-);
-
-app.use(
-    "/api/*",
-    cors({
-        origin: "*",
-        allowHeaders: ["Content-Type", "Authorization"],
-        allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        exposeHeaders: ["Content-Length"],
-        maxAge: 600,
-        credentials: true,
     }),
 );
 

@@ -35,7 +35,7 @@ curl -X PUT "$API_URL/api/profile" \
   -d '{"username":"alice","displayName":"Alice"}'
 ```
 
-Untuk browser, kirim cookie dengan `credentials: "include"` dan atur `CORS_ORIGIN` ke origin frontend yang persis sama, misalnya `http://localhost:5173`. API juga menerima `Authorization: Bearer <token>`, berguna jika browser memblokir cookie lintas situs. Di HTTPS, cookie sesi memakai `Secure; SameSite=None`. Untuk contoh JSON di bawah, tambahkan `Content-Type: application/json`. Tanda **—** berarti request tanpa body atau query tambahan. Respons `204` tidak berisi body.
+Untuk aplikasi native, kirim `Authorization: Bearer <token>` dengan token hasil login. Browser juga bisa mengakses REST dengan Bearer dari origin mana pun menggunakan `credentials: "omit"`. Untuk login dari browser dan sesi cookie lintas origin, atur `CORS_ORIGIN` ke origin frontend, misalnya `http://localhost:5173`. Kirim cookie dengan `credentials: "include"`. Di HTTPS, cookie sesi memakai `Secure; SameSite=None`. Untuk contoh JSON di bawah, tambahkan `Content-Type: application/json`. Tanda **—** berarti request tanpa body atau query tambahan. Respons `204` tidak berisi body.
 
 | Status | Arti umum |
 | --- | --- |
@@ -243,12 +243,11 @@ Alur utama adalah `sign-up/email → email-otp/verify-email → sign-in/email`. 
 
 ```sh
 curl "$API_URL/api/auth/sign-in/email" \
-  -H 'Origin: http://localhost:5173' \
   -H 'Content-Type: application/json' \
   -d '{"email":"alice@example.test","password":"ContohSandi123!"}'
 ```
 
-Sesuaikan header `Origin` dengan `CORS_ORIGIN` server. Gunakan token hasil login sebagai `TOKEN` pada contoh REST, atau simpan cookie sesi dari respons sesuai jenis klien.
+Gunakan token hasil login sebagai `TOKEN` pada contoh REST. Klien browser yang memakai sesi cookie dapat menyimpan cookie dari respons login.
 
 | Endpoint | Sesi | Contoh penggunaan | Respons dan catatan |
 | --- | --- | --- | --- |
@@ -329,7 +328,7 @@ Access token provider berbeda dari token sesi Ngumpul. Untuk request REST Ngumpu
 
 ## WebSocket
 
-Hubungkan socket setelah login. Browser dapat mengirim cookie sesi atau memakai query `token=<token-sesi>` saat cookie lintas situs diblokir. Jangan catat URL socket yang memuat token. Origin browser harus cocok dengan `CORS_ORIGIN` atau origin `BETTER_AUTH_URL`.
+Hubungkan socket setelah login. Aplikasi native dapat mengirim `Authorization: Bearer <token-sesi>` saat membuka koneksi. Browser dapat memakai query `token=<token-sesi>` atau cookie sesi dari origin yang cocok dengan `CORS_ORIGIN` atau `BETTER_AUTH_URL`. Jangan catat URL socket yang memuat token.
 
 | Endpoint | Contoh penggunaan | Event setelah tersambung |
 | --- | --- | --- |
