@@ -199,6 +199,15 @@ export type DirectCallEvent = {
     status: "ringing" | "active" | "declined" | "ended";
 };
 
+export type VoiceInviteEvent = {
+    type: "voice_invite";
+    serverId: string;
+    channelId: string;
+    actorId: string;
+    video: boolean;
+    createdAt: string;
+};
+
 export type RealtimeEvent =
     | ServerEvent
     | NotificationEvent
@@ -209,7 +218,8 @@ export type RealtimeEvent =
     | PollEvent
     | PinEvent
     | ScheduledMessageEvent
-    | DirectCallEvent;
+    | DirectCallEvent
+    | VoiceInviteEvent;
 
 export function isRealtimeEvent(value: unknown): value is RealtimeEvent {
     if (typeof value !== "object" || value === null) return false;
@@ -264,6 +274,10 @@ export function isRealtimeEvent(value: unknown): value is RealtimeEvent {
             && (event.event === "pinned" || event.event === "unpinned")
             && typeof event.messageId === "string"
             && typeof event.actorId === "string";
+    }
+    if (event.type === "voice_invite") {
+        return typeof event.serverId === "string" && typeof event.channelId === "string" &&
+            typeof event.actorId === "string" && typeof event.video === "boolean" && typeof event.createdAt === "string";
     }
     if (event.type === "direct_call") {
         return typeof event.callId === "string"

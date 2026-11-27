@@ -1,11 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { AccessToken } from "livekit-server-sdk";
-import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { profile, user } from "../db/schema/auth";
-import { communityServer, serverChannel, serverInvite, serverMember } from "../db/schema/community";
+import { communityServer, friendship, serverCategory, serverChannel, serverInvite, serverMember, userBlock } from "../db/schema/community";
 import { getServerRole } from "../lib/channel-access";
 import { isUniqueViolation } from "../lib/db-errors";
 import type { ChannelSummary, MemberSummary, ServerSummary } from "../models/realtime-event";
@@ -29,6 +29,8 @@ export async function listServers(c: Context) {
             icon: communityServer.icon,
             ownerId: communityServer.ownerId,
             role: serverMember.role,
+            membersCanInvite: communityServer.membersCanInvite,
+            createdAt: communityServer.createdAt,
             joinedAt: serverMember.joinedAt,
         })
         .from(serverMember)
@@ -79,7 +81,11 @@ export async function createServerInvite(c: Context) {
     const serverId = c.req.param("serverId") ?? "";
     const role = await getServerRole(serverId, userId);
     if (!role) return c.json({ error: "Server not found" }, 404);
-    if (role !== "owner" && role !== "admin") return c.json({ error: "Server admin permission required" }, 403);
+    if (role === "member") {
+        const [group] = await db.select({ allowed: communityServer.membersCanInvite }).from(communityServer)
+            .where(eq(communityServer.id, serverId)).limit(1);
+        if (!group?.allowed) return c.json({ error: "Server admin permission required" }, 403);
+    }
 
     const body = await readOptionalJson(c);
     if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
@@ -97,6 +103,41 @@ export async function createServerInvite(c: Context) {
     await db.insert(serverInvite).values({ code, serverId, createdBy: userId, expiresAt, maxUses: maxUses as number | null });
     await publishServerEvent(serverId, userId, "server.invite_created", {}, [userId]);
     return c.json({ invite: { code, serverId, expiresAt, maxUses } }, 201);
+}
+
+export async function previewServerInvite(c: Context) {
+    const userId = await getSessionUserId(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
+    const code = c.req.param("code") ?? "";
+    const [row] = await db.select({
+        serverId: communityServer.id, name: communityServer.name, icon: communityServer.icon,
+        description: communityServer.description, expiresAt: serverInvite.expiresAt,
+        maxUses: serverInvite.maxUses, uses: serverInvite.uses, member: serverMember.userId,
+    }).from(serverInvite)
+        .innerJoin(communityServer, eq(communityServer.id, serverInvite.serverId))
+        .leftJoin(serverMember, and(eq(serverMember.serverId, communityServer.id), eq(serverMember.userId, userId)))
+        .where(eq(serverInvite.code, code)).limit(1);
+    if (!row) return c.json({ error: "Undangan tidak ditemukan atau sudah dicabut" }, 410);
+    if (!row.member && ((row.expiresAt && row.expiresAt.getTime() <= Date.now()) ||
+        (row.maxUses !== null && row.uses >= row.maxUses))) {
+        return c.json({ error: "Undangan sudah kedaluwarsa atau batas penggunaan tercapai" }, 410);
+    }
+    const [{ memberCount }] = await db.select({ memberCount: count() }).from(serverMember)
+        .where(eq(serverMember.serverId, row.serverId));
+    return c.json({ invite: { serverId: row.serverId, name: row.name, icon: row.icon,
+        description: row.description, memberCount, member: Boolean(row.member) } }, 200);
+}
+
+export async function revokeServerInvite(c: Context) {
+    const userId = await getSessionUserId(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
+    const serverId = c.req.param("serverId") ?? "";
+    const code = c.req.param("code") ?? "";
+    const role = await getServerRole(serverId, userId);
+    if (!role) return c.json({ error: "Server not found" }, 404);
+    if (role === "member") return c.json({ error: "Server admin permission required" }, 403);
+    await db.delete(serverInvite).where(and(eq(serverInvite.serverId, serverId), eq(serverInvite.code, code)));
+    return c.body(null, 204);
 }
 
 export async function joinServerWithInvite(c: Context) {
@@ -166,7 +207,81 @@ export async function listServerChannels(c: Context) {
         .from(serverChannel)
         .where(eq(serverChannel.serverId, serverId))
         .orderBy(serverChannel.position, serverChannel.createdAt);
-    return c.json({ channels }, 200);
+    const categories = await db.select().from(serverCategory)
+        .where(eq(serverCategory.serverId, serverId)).orderBy(serverCategory.createdAt, serverCategory.id);
+    return c.json({ channels, categories }, 200);
+}
+
+async function categoryExists(serverId: string, categoryId: string) {
+    const [category] = await db.select({ id: serverCategory.id }).from(serverCategory)
+        .where(and(eq(serverCategory.serverId, serverId), eq(serverCategory.id, categoryId))).limit(1);
+    return Boolean(category);
+}
+
+export async function saveServerCategory(c: Context) {
+    const userId = await getSessionUserId(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
+    const serverId = c.req.param("serverId") ?? "";
+    const categoryId = c.req.param("categoryId");
+    const role = await getServerRole(serverId, userId);
+    if (!role) return c.json({ error: "Server not found" }, 404);
+    if (role === "member") return c.json({ error: "Server admin permission required" }, 403);
+    const body = await readJson(c);
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name || name.length > 60) return c.json({ error: "Nama kategori harus berisi 1–60 karakter" }, 400);
+    try {
+        const [category] = categoryId
+            ? await db.update(serverCategory).set({ name }).where(and(
+                eq(serverCategory.serverId, serverId), eq(serverCategory.id, categoryId),
+            )).returning()
+            : await db.insert(serverCategory).values({ id: randomUUID(), serverId, name }).returning();
+        if (!category) return c.json({ error: "Kategori tidak ditemukan" }, 404);
+        await publishServerEvent(serverId, userId, "server.updated");
+        return c.json({ category }, categoryId ? 200 : 201);
+    } catch (error) {
+        if (isUniqueViolation(error)) return c.json({ error: "Nama kategori sudah digunakan" }, 409);
+        throw error;
+    }
+}
+
+export async function deleteServerCategory(c: Context) {
+    const userId = await getSessionUserId(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
+    const serverId = c.req.param("serverId") ?? "";
+    const categoryId = c.req.param("categoryId") ?? "";
+    const role = await getServerRole(serverId, userId);
+    if (!role) return c.json({ error: "Server not found" }, 404);
+    if (role === "member") return c.json({ error: "Server admin permission required" }, 403);
+
+    const body = await readOptionalJson(c);
+    if (!body) return c.json({ error: "Invalid JSON body" }, 400);
+    const destination = body.destinationId;
+    if ((body.deleteChannels !== undefined && typeof body.deleteChannels !== "boolean") ||
+        (body.deleteChannels === true && destination != null)) {
+        return c.json({ error: "Pilih hapus channel atau tentukan kategori tujuan" }, 400);
+    }
+    if (destination !== undefined && destination !== null &&
+        (typeof destination !== "string" || destination === categoryId || !await categoryExists(serverId, destination))) {
+        return c.json({ error: "Kategori tujuan tidak tersedia" }, 400);
+    }
+    const result = await db.transaction(async tx => {
+        const condition = and(eq(serverCategory.serverId, serverId), eq(serverCategory.id, categoryId));
+        const [category] = await tx.select({ id: serverCategory.id }).from(serverCategory).where(condition).for("update");
+        if (!category) return null;
+        const channels = and(eq(serverChannel.serverId, serverId), eq(serverChannel.categoryId, categoryId));
+        const removed = body.deleteChannels === true
+            ? await tx.delete(serverChannel).where(channels).returning({ id: serverChannel.id })
+            : [];
+        if (typeof destination === "string") await tx.update(serverChannel).set({ categoryId: destination }).where(channels);
+        await tx.delete(serverCategory).where(condition);
+        return removed;
+    });
+    if (!result) return c.json({ error: "Kategori tidak ditemukan" }, 404);
+    const ids = result.map(({ id }) => id);
+    ids.forEach(revokeChannel);
+    await deleteChannelAttachments(ids);
+    await publishServerEvent(serverId, userId, "server.updated");
+    return c.body(null, 204);
 }
 
 export async function createServerChannel(c: Context) {
@@ -190,6 +305,11 @@ export async function createServerChannel(c: Context) {
         return c.json({ error: "Description must be at most 500 characters" }, 400);
     }
 
+    const categoryId = body.categoryId ?? null;
+    if (categoryId !== null && (typeof categoryId !== "string" || !await categoryExists(serverId, categoryId))) {
+        return c.json({ error: "Kategori tidak ditemukan" }, 404);
+    }
+
     const [lastChannel] = await db.select({ position: serverChannel.position }).from(serverChannel)
         .where(eq(serverChannel.serverId, serverId)).orderBy(desc(serverChannel.position)).limit(1);
     try {
@@ -198,6 +318,7 @@ export async function createServerChannel(c: Context) {
             serverId,
             name,
             kind,
+            categoryId,
             description: typeof description === "string" ? description.trim() || null : null,
             position: (lastChannel?.position ?? -1) + 1,
             createdBy: userId,
@@ -260,6 +381,10 @@ export async function updateServer(c: Context) {
             return c.json({ error: "Description must be at most 500 characters" }, 400);
         }
         patch.description = typeof body.description === "string" ? body.description.trim() || null : null;
+    }
+    if (body.membersCanInvite !== undefined) {
+        if (typeof body.membersCanInvite !== "boolean") return c.json({ error: "membersCanInvite must be a boolean" }, 400);
+        patch.membersCanInvite = body.membersCanInvite;
     }
     if (body.icon !== undefined) {
         if (body.icon !== null && (typeof body.icon !== "string" || body.icon.length > 2048 || !isHttpUrl(body.icon))) {
@@ -324,6 +449,13 @@ export async function updateServerChannel(c: Context) {
         }
         patch.description = typeof body.description === "string" ? body.description.trim() || null : null;
     }
+    if (body.categoryId !== undefined) {
+        const categoryId = body.categoryId;
+        if (categoryId !== null && (typeof categoryId !== "string" || !await categoryExists(serverId, categoryId))) {
+            return c.json({ error: "Kategori tidak ditemukan" }, 404);
+        }
+        patch.categoryId = categoryId;
+    }
     if (body.position !== undefined) {
         if (!Number.isInteger(body.position) || (body.position as number) < 0 || (body.position as number) > 1_000_000) {
             return c.json({ error: "position must be a non-negative integer" }, 400);
@@ -377,7 +509,19 @@ export async function listServerMembers(c: Context) {
         userId: user.id,
         username: user.username,
         displayName: profile.displayName,
-        avatar: profile.avatar,
+        avatar: sql<string | null>`case
+            when ${user.id} = ${userId} then ${profile.avatar}
+            when exists (
+                select 1 from ${userBlock} where (${userBlock.blockerId} = ${userId} and ${userBlock.blockedId} = ${user.id})
+                    or (${userBlock.blockerId} = ${user.id} and ${userBlock.blockedId} = ${userId})
+            ) then null
+            when ${profile.photoVisibility} = 'everyone' or (
+                ${profile.photoVisibility} = 'friends' and exists (
+                    select 1 from ${friendship} where (${friendship.userId} = ${userId} and ${friendship.friendUserId} = ${user.id})
+                        or (${friendship.userId} = ${user.id} and ${friendship.friendUserId} = ${userId})
+                )
+            ) then ${profile.avatar}
+            else null end`,
         role: serverMember.role,
         joinedAt: serverMember.joinedAt,
     }).from(serverMember)

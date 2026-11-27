@@ -14,6 +14,7 @@ async function findFriendTarget(userId: string, targetId: string) {
         username: user.username,
         displayName: profile.displayName,
         avatar: profile.avatar,
+        photoVisibility: profile.photoVisibility,
     }).from(user).leftJoin(profile, eq(profile.userId, user.id)).where(eq(user.id, targetId)).limit(1);
     return target ?? null;
 }
@@ -89,7 +90,7 @@ export async function previewFriendQr(c: Context) {
                 id: target.id,
                 username: target.username,
                 displayName: target.displayName ?? null,
-                avatar: target.avatar ?? null,
+                avatar: !block && (target.photoVisibility === "everyone" || (friends && target.photoVisibility !== "nobody")) ? target.avatar : null,
             },
             expiresAt: parsed.expiresAt.toISOString(),
             canRequest: !block && !friends,

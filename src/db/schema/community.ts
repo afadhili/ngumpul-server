@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+    boolean,
     check,
     index,
     integer,
@@ -86,6 +87,7 @@ export const communityServer = pgTable(
         name: text("name").notNull(),
         description: text("description"),
         icon: text("icon"),
+        membersCanInvite: boolean("members_can_invite").notNull().default(false),
         ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
         createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
         updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -122,12 +124,24 @@ export const serverInvite = pgTable(
     table => [index("server_invite_server_id_idx").on(table.serverId)],
 );
 
+export const serverCategory = pgTable(
+    "server_category",
+    {
+        id: text("id").primaryKey(),
+        serverId: text("server_id").notNull().references(() => communityServer.id, { onDelete: "cascade" }),
+        name: text("name").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    table => [uniqueIndex("server_category_name_unique").on(table.serverId, sql`lower(${table.name})`)],
+);
+
 export const serverChannel = pgTable(
     "server_channel",
     {
         id: text("id").primaryKey(),
         serverId: text("server_id").notNull().references(() => communityServer.id, { onDelete: "cascade" }),
         name: text("name").notNull(),
+        categoryId: text("category_id").references(() => serverCategory.id, { onDelete: "set null" }),
         description: text("description"),
         kind: text("kind").notNull().default("text"),
         position: integer("position").notNull().default(0),
@@ -138,6 +152,7 @@ export const serverChannel = pgTable(
     table => [
         check("server_channel_kind_check", sql`${table.kind} IN ('text', 'voice')`),
         uniqueIndex("server_channel_server_name_unique").on(table.serverId, table.name),
+        index("server_channel_category_idx").on(table.categoryId),
         index("server_channel_server_position_idx").on(table.serverId, table.position),
     ],
 );

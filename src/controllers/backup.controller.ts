@@ -13,7 +13,7 @@ import {
     scheduledMessage,
     userPreference,
 } from "../db/schema/features";
-import { canUseConversationTarget } from "../lib/conversation-access";
+import { resolveConversationTarget } from "../lib/conversation-access";
 import { getSessionUserId } from "../lib/request-auth";
 
 const MAX_MESSAGES_PER_KIND = 5000;
@@ -152,11 +152,11 @@ export async function restoreBackup(c: Context) {
         const row = asStringRecord(entry);
         const id = row?.id;
         const peerId = row?.senderId === userId ? row?.recipientId : row?.senderId;
-        if (!id || typeof peerId !== "string" || typeof row?.text !== "string") {
+        if (!id || typeof peerId !== "string" || typeof row?.text !== "string" || !row.text.trim()) {
             result.skipped += 1;
             continue;
         }
-        if (!(await canUseConversationTarget(userId, "direct", [userId, peerId].sort().join(":")))) {
+        if (!(await resolveConversationTarget(userId, "direct", peerId))) {
             result.skipped += 1;
             continue;
         }
@@ -179,11 +179,11 @@ export async function restoreBackup(c: Context) {
     for (const entry of channelRows) {
         const row = asStringRecord(entry);
         const id = row?.id;
-        if (!id || typeof row?.channelId !== "string" || typeof row?.text !== "string") {
+        if (!id || typeof row?.channelId !== "string" || typeof row?.text !== "string" || !row.text.trim()) {
             result.skipped += 1;
             continue;
         }
-        if (!(await canUseConversationTarget(userId, "channel", row.channelId))) {
+        if (!(await resolveConversationTarget(userId, "channel", row.channelId))) {
             result.skipped += 1;
             continue;
         }
@@ -214,7 +214,8 @@ export async function restoreBackup(c: Context) {
             result.skipped += 1;
             continue;
         }
-        if (!(await canUseConversationTarget(userId, row.scope, row.targetId))) {
+        const targetId = await resolveConversationTarget(userId, row.scope, row.targetId);
+        if (!targetId) {
             result.skipped += 1;
             continue;
         }
@@ -224,7 +225,7 @@ export async function restoreBackup(c: Context) {
                 id: crypto.randomUUID(),
                 userId,
                 scope: row.scope,
-                targetId: row.targetId,
+                targetId,
                 text: row.text.slice(0, 4000),
                 updatedAt: new Date(),
             })

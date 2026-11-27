@@ -17,7 +17,7 @@ import {
     removeFriend,
     sendFriendRequest,
 } from "../controllers/friend.controller";
-import { checkUsernameAvailability, getProfile, searchUsers, updateProfile } from "../controllers/profile.controller";
+import { checkUsernameAvailability, getProfile, getVisibleProfile, saveProfileImage, searchUsers, showProfileImage, updateProfile } from "../controllers/profile.controller";
 import { getCurrentUser } from "../controllers/user.controller";
 import {
     blockUser,
@@ -122,6 +122,22 @@ const apiRoutes = new Hono()
             body: schemas.profileInput,
             errors: [409],
         }),
+    )
+    .post(
+        "/profile/media",
+        ...rest(saveProfileImage, "Profil", "Simpan avatar atau banner", object({ url: uri }), {
+            status: 201, body: object({ type: choice("avatar", "banner"), data: string }), errors: [400, 503],
+        }),
+    )
+    .get(
+        "/profile/media/:imageId",
+        ...rest(showProfileImage, "Profil", "Buka foto profil dengan tautan", undefined, {
+            public: true, errors: [404, 503], responses: { 302: redirectResponse("Tautan penyimpanan foto.") },
+        }),
+    )
+    .get(
+        "/users/:userId/profile",
+        ...rest(getVisibleProfile, "Profil", "Baca profil sesuai visibilitas", object({ profile: schemas.visibleProfile }), { errors: [404] }),
     )
     .get(
         "/users/search",

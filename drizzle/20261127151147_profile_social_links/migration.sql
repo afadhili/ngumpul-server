@@ -1,0 +1,1 @@
+ALTER TABLE "profile" ADD COLUMN "social_links" jsonb DEFAULT '[]' NOT NULL;

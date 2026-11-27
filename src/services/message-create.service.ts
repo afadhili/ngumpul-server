@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db, type DbExecutor, type DbTransaction } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { channelMessage } from "../db/schema/channel-message";
 import { directMessage } from "../db/schema/direct-message";
+import { userPreference } from "../db/schema/features";
 import type { ChannelAccess } from "../lib/channel-access";
 import { isServerManager } from "../lib/channel-access";
 import { extractMentionUsernames } from "../lib/mentions";
@@ -168,7 +169,12 @@ export async function storeDirectMessage(
 
     const message = toDirectRecord(row, metaFor(await loadDirectMessageMeta([row], userId, executor), row.id));
     const peerPreference = await getConversationPreference(peerId, "direct", userId, executor);
-    const notifications = allowsNotification(peerPreference, mentionIds.length > 0)
+    const [peerSettings] = await executor.select({
+        direct: userPreference.notifyDirectMessages, mentions: userPreference.notifyMentions,
+    }).from(userPreference).where(eq(userPreference.userId, peerId)).limit(1);
+    const mention = mentionIds.length > 0;
+    const enabled = mention ? peerSettings?.mentions !== false : peerSettings?.direct !== false;
+    const notifications = enabled && allowsNotification(peerPreference, mention)
         ? await persistNotifications(executor, {
             recipients: [peerId],
             kind: mentionIds.length > 0 ? "mention" : "direct_message",
@@ -284,10 +290,16 @@ export async function storeChannelMessage(
 
     if (memberIds.length > 0) {
         const preferences = await loadPreferencesForTarget("channel", channelId, memberIds, executor);
+        const rows = await executor.select({
+            id: userPreference.userId, channels: userPreference.notifyChannels, mentions: userPreference.notifyMentions,
+        }).from(userPreference).where(inArray(userPreference.userId, memberIds));
+        const settings = new Map(rows.map(row => [row.id, row]));
         const mentioned = new Set(mentionIds);
         const mentionRecipients = mentionIds.filter(id => memberIds.includes(id)
+            && settings.get(id)?.mentions !== false
             && allowsNotification(preferences.get(id) ?? null, true));
         const generic = memberIds.filter(id => !mentioned.has(id)
+            && settings.get(id)?.channels !== false
             && allowsNotification(preferences.get(id) ?? null, false));
         if (mentionRecipients.length > 0) {
             notifications.push(...await persistNotifications(executor, {
@@ -302,7 +314,8 @@ export async function storeChannelMessage(
             }));
         }
         if (isAnnouncement) {
-            const announcementRecipients = memberIds.filter(id => allowsNotification(preferences.get(id) ?? null, true));
+            const announcementRecipients = memberIds.filter(id => settings.get(id)?.channels !== false &&
+                allowsNotification(preferences.get(id) ?? null, true));
             if (announcementRecipients.length > 0) {
                 notifications.push(...await persistNotifications(executor, {
                     recipients: announcementRecipients,

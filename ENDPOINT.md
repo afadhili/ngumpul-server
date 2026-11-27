@@ -6,6 +6,7 @@
 | [REST API](#rest-api) | Profil, teman, chat, grup, dan fitur aplikasi |
 | [Autentikasi Better Auth](#autentikasi-better-auth) | Daftar, login, OTP, Google, dan sesi |
 | [WebSocket](#websocket) | Menerima pesan dan perubahan secara real-time |
+| [Panggilan pribadi](#panggilan-pribadi)                 | Undangan telepon DM, riwayat, dan token media        |
 | [LiveKit](#livekit) | Panggilan audio, video, dan berbagi layar |
 | [Penyimpanan S3](#penyimpanan-s3) | Mengunggah atau membuka lampiran |
 | [Konfigurasi layanan](#konfigurasi-layanan) | Variabel lingkungan yang mengaktifkan tiap layanan |
@@ -128,6 +129,16 @@ Satu grup disebut **server** di API. Peran yang tersedia adalah `owner`, `admin`
 | `POST /api/servers/:serverId/members` | Body `{"username":"bob"}` atau `{"userId":"user-b"}`. Owner/admin. | `201 {member}`. `409` jika sudah menjadi anggota. |
 | `PATCH /api/servers/:serverId/members/:userId` | Body `{"role":"admin"}` atau `{"role":"member"}`. Hanya owner yang bisa mengubah peran anggota lain. | `200 {member}`. Peran owner tetap. |
 | `DELETE /api/servers/:serverId/members/:userId` | Anggota memakai ID sendiri untuk keluar. Owner bisa menghapus admin/member, admin hanya member. | `204`. Owner tidak dapat dikeluarkan atau keluar melalui endpoint ini. |
+
+### Kategori, undangan, dan profil
+
+- `GET /api/servers/:serverId/channels` menyertakan `categories`. Channel dapat berisi `categoryId`, dan `null` menempatkannya di kategori bawaan sesuai jenis.
+- `POST /api/servers/:serverId/categories` dan `PATCH /api/servers/:serverId/categories/:categoryId` menerima `{ "name": "Kelas" }`. Pemilik atau admin mengelola kategori.
+- `DELETE /api/servers/:serverId/categories/:categoryId` menerima opsi `destinationId` untuk memindahkan channel. Kirim `deleteChannels: true` untuk menghapus channel di kategori. Pilihan bawaan memindahkan channel ke kategori bawaan.
+- `GET /api/servers/invites/:code` mengembalikan pratinjau, jumlah anggota dan status keanggotaan. `DELETE /api/servers/:serverId/invites/:code` mencabut tautan sebagai pemilik atau admin. `PATCH /api/servers/:serverId` menerima `membersCanInvite` agar anggota bisa membuat undangan.
+- `POST /api/servers/:serverId/channels/:channelId/voice-invites` menerima `{ "video": false }` dari peserta ruang suara. Anggota lain yang sedang online menerima event `voice_invite` melalui `/ws/user`. Jeda undangan 30 detik per pengirim dan ruang pada instance API yang sama.
+- `PUT /api/profile` menerima `socialLinks` berisi hingga 12 objek `{ id, nama, platform, url }`. `GET /api/users/:userId/profile` mengembalikan profil yang dapat dilihat oleh sesi.
+- `POST /api/profile/media` menerima `{ type, data }`. Gunakan jenis `avatar` atau `banner` dan data URL JPEG maksimal 512 KB setelah dekode. Penyimpanan objek menghasilkan URL foto. Akses melalui URL foto bergantung pada kepemilikan tautan. API hanya membagikan URL profil sesuai pengaturan visibilitas.
 
 ### Chat channel dan status baca
 

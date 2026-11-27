@@ -4,9 +4,51 @@ import { RoomServiceClient, TwirpError } from "livekit-server-sdk";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { serverChannel } from "../db/schema/community";
-import { getServerRole } from "../lib/channel-access";
+import { getChannelAccess, getServerRole } from "../lib/channel-access";
 import { getSessionUserId } from "../lib/request-auth";
 import { summarizeVoiceTracks } from "../lib/voice-tracks";
+import { publishUserEvent } from "../services/event.service";
+import { getServerMemberIds } from "../services/server-event.service";
+
+const inviteCooldowns = new Set<string>();
+
+export async function inviteVoiceParticipants(c: Context) {
+    const userId = await getSessionUserId(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
+    const serverId = c.req.param("serverId") ?? "";
+    const channelId = c.req.param("channelId") ?? "";
+    const access = await getChannelAccess(userId, channelId, serverId);
+    if (access?.kind !== "voice") return c.json({ error: "Voice channel not found" }, 404);
+    const body = await c.req.json<{ video?: unknown }>().catch(() => null);
+    if (typeof body?.video !== "boolean") return c.json({ error: "video must be a boolean" }, 400);
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    if (!apiKey || !apiSecret) return c.json({ error: "Voice service is not configured" }, 503);
+
+    const room = `server-${serverId}-channel-${channelId}`;
+    const key = JSON.stringify([userId, room]);
+    if (inviteCooldowns.has(key)) return c.json({ error: "Tunggu sebelum mengirim undangan lagi" }, 429);
+    inviteCooldowns.add(key);
+    try {
+        const kit = new RoomServiceClient(liveKitHttpUrl(), apiKey, apiSecret);
+        const active = await kit.listParticipants(room);
+        if (!active.some((p) => p.identity === userId)) return c.json({ error: "Gabung ke ruang suara terlebih dahulu" }, 409);
+        const occupied = new Set(active.map((p) => p.identity));
+        const recipients = (await getServerMemberIds(serverId)).filter((id) => !occupied.has(id));
+        await publishUserEvent(recipients, { type: "voice_invite", serverId, channelId, actorId: userId,
+            video: body.video, createdAt: new Date().toISOString() });
+        return c.json({ invitedCount: recipients.length }, 200);
+    } catch (error) {
+        if (error instanceof TwirpError && error.code === "not_found") {
+            return c.json({ error: "Gabung ke ruang suara terlebih dahulu" }, 409);
+        }
+        console.error("Unable to send voice invites:", error);
+        return c.json({ error: "Voice service is unavailable" }, 502);
+    } finally {
+        setTimeout(() => inviteCooldowns.delete(key), 30_000).unref();
+    }
+}
+
 
 function liveKitHttpUrl() {
     const url = process.env.LIVEKIT_URL || process.env.LIVEKIT_PUBLIC_URL || "ws://localhost:7880";

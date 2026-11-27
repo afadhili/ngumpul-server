@@ -5,6 +5,7 @@ import {
     GetObjectCommand,
     HeadBucketCommand,
     HeadObjectCommand,
+    PutObjectCommand,
     S3Client,
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
@@ -144,6 +145,13 @@ async function createAttachmentUrl(key: string, mimeType: string, fileName: stri
         ResponseContentDisposition: `${disposition}; filename*=UTF-8''${safeName}`,
     });
     return getSignedUrl(getSigningClient(), command, { expiresIn: 300 });
+}
+
+export async function storeProfileImage(key: string, bytes: Buffer) {
+    await ensureBucketExists();
+    await getClients().internal.send(new PutObjectCommand({
+        Bucket: requireBucket(), Key: key, Body: bytes, ContentType: "image/jpeg", ContentDisposition: "inline",
+    }));
 }
 
 export async function deleteObject(key: string) {

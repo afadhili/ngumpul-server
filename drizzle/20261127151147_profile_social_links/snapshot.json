@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "10",
+  "dialect": "postgres",
+  "id": "3a493105-766c-405e-9b9a-4ec30450a5ce",
+  "prevIds": [
+    "c3e1ee53-c4bb-4cb5-946e-620ae7f11bbc"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "profile",
+        "social_links"
+      ],
+      "writes": [
+        "s|col|public.profile.social_links",
+        "n|col|public.profile.social_links",
+        "e|col|public.profile.social_links"
+      ],
+      "reads": [
+        "n|tbl|public.profile",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "profile",
+        "name": "social_links",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'[]'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -33,12 +33,19 @@ export const privacyFields = {
     lastSeenVisibility: visibility,
 };
 
+const socialLinks = array(object({ id: string, nama: string, platform: string, url: uri }));
+export const visibleProfile = object({
+    userId: id, username: nullable(string), displayName: nullable(string), bio: nullable(string),
+    avatar: nullable(uri), banner: nullable(uri), socialLinks,
+});
+
 export const profileInput = object(
     {
         username,
         displayName: nullable(text(0, 60)),
         bio: nullable(text(0, 500)),
         avatar: nullable({ type: "string", format: "uri", maxLength: 2048 }),
+        socialLinks,
         isPublic: boolean,
     },
     ["username"],
@@ -52,6 +59,7 @@ const profileFields = {
     banner: nullable(uri),
     location: nullable(string),
     website: nullable(string),
+    socialLinks: nullable(socialLinks),
     pronouns: nullable(string),
 };
 export const profile = object({
@@ -386,12 +394,14 @@ export const attachment = object({
     previewUrl: uri,
 });
 
-export const serverFields = { id, name: string, description: nullable(string), icon: nullable(uri), ownerId: id };
+export const serverFields = { id, name: string, description: nullable(string), icon: nullable(uri), ownerId: id, membersCanInvite: boolean };
 export const server = object({ ...serverFields, createdAt: dateTime, updatedAt: dateTime });
 export const serverInputFields = { name: text(2, 80), description: nullable(text(0, 500)) };
+export const category = object({ id, serverId: id, name: string, createdAt: dateTime });
 export const channel = object({
     id,
     serverId: id,
+    categoryId: nullable(id),
     name: string,
     description: nullable(string),
     kind: channelKind,
@@ -401,6 +411,7 @@ export const channel = object({
     updatedAt: dateTime,
 });
 export const channelInputFields = {
+    categoryId: nullable(id),
     name: { ...text(1, 100), description: "Nama dinormalisasi ke huruf kecil dan tanda hubung." },
     description: nullable(text(0, 500)),
 };

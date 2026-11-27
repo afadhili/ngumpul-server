@@ -1,6 +1,6 @@
 import { endDirectCallsBetween } from "./direct-call.controller";
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
@@ -21,7 +21,8 @@ export async function listFriends(c: Context) {
     if (friendIds.length === 0) return c.json({ friends: [] }, 200);
 
     const profiles = await db
-        .select({ userId: user.id, username: user.username, displayName: profile.displayName, avatar: profile.avatar })
+        .select({ userId: user.id, username: user.username, displayName: profile.displayName,
+            avatar: sql<string | null>`case when ${profile.photoVisibility} = 'nobody' then null else ${profile.avatar} end` })
         .from(user)
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(inArray(user.id, friendIds));

@@ -8,6 +8,10 @@ import {
     deleteServerChannel,
     getVoiceChannelToken,
     joinServerWithInvite,
+    previewServerInvite,
+    revokeServerInvite,
+    saveServerCategory,
+    deleteServerCategory,
     listServerChannels,
     listServerMembers,
     listServers,
@@ -26,7 +30,7 @@ import {
 import { listChannelPins, pinChannelMessage, unpinChannelMessage } from "../controllers/pin.controller";
 import { getServerUnreadCounts } from "../controllers/read-state.controller";
 import { searchChannelMessages } from "../controllers/search.controller";
-import { listVoiceParticipants, updateVoiceParticipant } from "../controllers/voice.controller";
+import { inviteVoiceParticipants, listVoiceParticipants, updateVoiceParticipant } from "../controllers/voice.controller";
 
 import {
     array,
@@ -50,7 +54,7 @@ const serverRoutes = new Hono()
             listServers,
             "Grup",
             "Ambil daftar grup yang Anda ikuti",
-            object({ servers: array(object({ ...schemas.serverFields, role: schemas.memberRole, joinedAt: dateTime })) }),
+            object({ servers: array(object({ ...schemas.serverFields, role: schemas.memberRole, createdAt: dateTime, joinedAt: dateTime })) }),
         ),
     )
     .post(
@@ -58,6 +62,36 @@ const serverRoutes = new Hono()
         ...rest(createServer, "Grup", "Buat grup dan channel teks general", object({ server: schemas.server }), {
             status: 201,
             body: object(schemas.serverInputFields, ["name"]),
+        }),
+    )
+    .get(
+        "/invites/:code",
+        ...rest(previewServerInvite, "Grup", "Pratinjau undangan grup", object({ invite: object({
+            serverId: schemas.id, name: string, icon: nullable(uri), description: nullable(string),
+            memberCount: integer(0), member: boolean,
+        }) }), { errors: [410] }),
+    )
+    .delete(
+        "/:serverId/invites/:code",
+        ...rest(revokeServerInvite, "Grup", "Cabut tautan undangan", undefined, { status: 204, errors: [403, 404] }),
+    )
+    .post(
+        "/:serverId/categories",
+        ...rest(saveServerCategory, "Channel", "Buat kategori channel", object({ category: schemas.category }), {
+            status: 201, body: object({ name: string }), errors: [403, 404, 409],
+        }),
+    )
+    .patch(
+        "/:serverId/categories/:categoryId",
+        ...rest(saveServerCategory, "Channel", "Ubah nama kategori", object({ category: schemas.category }), {
+            body: object({ name: string }), errors: [403, 404, 409],
+        }),
+    )
+    .delete(
+        "/:serverId/categories/:categoryId",
+        ...rest(deleteServerCategory, "Channel", "Hapus kategori channel", undefined, {
+            status: 204, optionalBody: true, body: object({ destinationId: nullable(schemas.id), deleteChannels: boolean }, []),
+            errors: [400, 403, 404],
         }),
     )
     .post(
@@ -70,7 +104,7 @@ const serverRoutes = new Hono()
     .patch(
         "/:serverId",
         ...rest(updateServer, "Grup", "Ubah grup sebagai owner atau admin", object({ server: schemas.server }), {
-            body: { ...object({ ...schemas.serverInputFields, icon: nullable(uri) }, []), minProperties: 1 },
+            body: { ...object({ ...schemas.serverInputFields, icon: nullable(uri), membersCanInvite: boolean }, []), minProperties: 1 },
             errors: [403, 404],
         }),
     )
@@ -94,7 +128,7 @@ const serverRoutes = new Hono()
     )
     .get(
         "/:serverId/channels",
-        ...rest(listServerChannels, "Channel", "Ambil daftar channel grup", object({ channels: array(schemas.channel) }), { errors: [404] }),
+        ...rest(listServerChannels, "Channel", "Ambil daftar channel grup", object({ channels: array(schemas.channel), categories: array(schemas.category) }), { errors: [404] }),
     )
     .post(
         "/:serverId/channels",
@@ -124,6 +158,13 @@ const serverRoutes = new Hono()
             object({ url: uri, token: string, room: string, expiresInSeconds: integer(1) }),
             { errors: [404, 503] },
         ),
+    )
+    .post(
+        "/:serverId/channels/:channelId/voice-invites",
+        ...rest(inviteVoiceParticipants, "LiveKit", "Undang anggota grup ke ruang suara aktif",
+            object({ invitedCount: integer(0) }), {
+                body: object({ video: boolean }), errors: [404, 409, 502, 503],
+            }),
     )
     .get(
         "/:serverId/channels/:channelId/voice-participants",

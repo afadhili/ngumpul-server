@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
     id: text("id").primaryKey(),
@@ -66,6 +66,8 @@ export const verification = pgTable(
     table => [index("verification_identifier_idx").on(table.identifier)],
 );
 
+export type SocialLink = { id: string; nama: string; platform: string; url: string };
+
 export const profile = pgTable(
     "profile",
     {
@@ -80,6 +82,7 @@ export const profile = pgTable(
         banner: text("banner"),
         location: text("location"),
         website: text("website"),
+        socialLinks: jsonb("social_links").$type<SocialLink[]>().notNull().default([]),
         pronouns: text("pronouns"),
         isPublic: boolean("is_public").notNull().default(true),
         photoVisibility: text("photo_visibility").notNull().default("friends"),

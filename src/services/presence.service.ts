@@ -1,8 +1,9 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db/index";
-import { user } from "../db/schema/auth";
-import { friendship } from "../db/schema/community";
+import { profile, user } from "../db/schema/auth";
+import { friendship, userBlock } from "../db/schema/community";
 import { userPreference, userPresence } from "../db/schema/features";
+import { canAccessDirectConversation } from "../lib/direct-conversation";
 import type { PresenceEvent } from "../models/realtime-event";
 import { publishUserEvent } from "./event.service";
 
@@ -89,27 +90,49 @@ export async function getFriendIds(userId: string) {
 
 type PresenceVisibility = "everyone" | "friends" | "nobody";
 
-export async function getPresenceVisibility(userId: string): Promise<PresenceVisibility> {
-    const [row] = await db.select({ settings: userPreference.settings })
-        .from(userPreference).where(eq(userPreference.userId, userId)).limit(1);
-    const settings = row?.settings as Record<string, unknown> | null | undefined;
-    const value = settings?.presenceVisibility;
-    return value === "everyone" || value === "friends" || value === "nobody" ? value : "friends";
+const defaultPresencePrivacy = { online: "friends", lastSeen: "friends" } as const;
+
+async function loadPresencePrivacy(userIds: string[]) {
+    if (!userIds.length) return new Map<string, { online: PresenceVisibility; lastSeen: PresenceVisibility }>();
+    const rows = await db.select({ id: user.id, settings: userPreference.settings, online: profile.onlineStatusVisibility,
+        lastSeen: profile.lastSeenVisibility }).from(user)
+        .leftJoin(userPreference, eq(userPreference.userId, user.id))
+        .leftJoin(profile, eq(profile.userId, user.id)).where(inArray(user.id, userIds));
+    return new Map(rows.map(row => {
+        const settings = row.settings as Record<string, unknown> | null;
+        const configured = settings?.presenceVisibility;
+        const online: PresenceVisibility = row.online === "nobody" || configured === "nobody" ? "nobody" :
+            row.online === "friends" || configured === "friends" ? "friends" :
+            row.online === "everyone" || configured === "everyone" ? "everyone" : "friends";
+        const lastSeen: PresenceVisibility = row.lastSeen === "nobody" || row.lastSeen === "everyone" ? row.lastSeen : "friends";
+        return [row.id, { online, lastSeen }];
+    }));
 }
 
-/** Returns whether `viewerId` may see the presence of `targetUserId`. */
-export async function canViewPresence(viewerId: string, targetUserId: string) {
-    if (viewerId === targetUserId) return true;
-    const visibility = await getPresenceVisibility(targetUserId);
-    if (visibility === "nobody") return false;
-    if (visibility === "everyone") return true;
-    const [link] = await db.select({ userId: friendship.userId }).from(friendship).where(and(
-        or(
-            and(eq(friendship.userId, viewerId), eq(friendship.friendUserId, targetUserId)),
-            and(eq(friendship.userId, targetUserId), eq(friendship.friendUserId, viewerId)),
-        ),
+async function presencePrivacy(userId: string) {
+    return (await loadPresencePrivacy([userId])).get(userId) || defaultPresencePrivacy;
+}
+
+export async function getFriendPresencePermissions(ids: string[]) {
+    const policies = await loadPresencePrivacy(ids);
+    return ids.map(id => {
+        const policy = policies.get(id) || defaultPresencePrivacy;
+        return { status: policy.online !== "nobody", lastSeen: policy.lastSeen !== "nobody" };
+    });
+}
+
+export async function getPresencePermissions(viewerId: string, targetUserId: string) {
+    if (viewerId === targetUserId) return { status: true, lastSeen: true };
+    const [block] = await db.select({ blockerId: userBlock.blockerId }).from(userBlock).where(or(
+        and(eq(userBlock.blockerId, viewerId), eq(userBlock.blockedId, targetUserId)),
+        and(eq(userBlock.blockerId, targetUserId), eq(userBlock.blockedId, viewerId)),
     )).limit(1);
-    return Boolean(link);
+    if (block) return { status: false, lastSeen: false };
+    const privacy = await presencePrivacy(targetUserId);
+    const friend = (privacy.online === "friends" || privacy.lastSeen === "friends")
+        && await canAccessDirectConversation(viewerId, targetUserId);
+    const visible = (level: PresenceVisibility) => level === "everyone" || level === "friends" && friend;
+    return { status: visible(privacy.online), lastSeen: visible(privacy.lastSeen) };
 }
 
 export function toPublicPresence(row: typeof userPresence.$inferSelect | null, userId: string) {
@@ -124,22 +147,25 @@ export function toPublicPresence(row: typeof userPresence.$inferSelect | null, u
 /** Broadcasts the current presence of `userId` to friends that may see it. */
 export async function broadcastPresence(userId: string) {
     const presence = await getPresence(userId);
-    const visibility = await getPresenceVisibility(userId);
-    if (visibility === "nobody") return;
-    const recipients = visibility === "everyone"
-        ? (await db.select({ id: user.id }).from(user)).map(row => row.id)
-        : await getFriendIds(userId);
-    const filtered = recipients.filter(id => id !== userId).slice(0, 500);
+    const privacy = await presencePrivacy(userId);
+    if (privacy.online === "nobody") return;
+    const friends = new Set(await getFriendIds(userId));
+    const recipients = privacy.online === "everyone"
+        ? (await db.select({ id: user.id }).from(user).limit(500)).map(row => row.id)
+        : [...friends];
+    const blocked = await db.select({ blocker: userBlock.blockerId, blocked: userBlock.blockedId })
+        .from(userBlock).where(or(eq(userBlock.blockerId, userId), eq(userBlock.blockedId, userId)));
+    const excluded = new Set([userId, ...blocked.map(row => row.blocker === userId ? row.blocked : row.blocker)]);
+    const filtered = recipients.filter(id => !excluded.has(id)).slice(0, 500);
     if (filtered.length === 0) return;
-    const event: PresenceEvent = {
-        type: "presence",
-        userId,
-        status: (presence?.status ?? "offline") as PresenceStatus,
-        lastSeenAt: presence?.lastSeenAt?.toISOString() ?? null,
-        updatedAt: (presence?.updatedAt ?? new Date()).toISOString(),
-    };
+    const event: PresenceEvent = { ...toPublicPresence(presence, userId), type: "presence" };
+    const withLastSeen = filtered.filter(id => privacy.lastSeen === "everyone" || privacy.lastSeen === "friends" && friends.has(id));
+    const maySeeLastSeen = new Set(withLastSeen);
     try {
-        await publishUserEvent(filtered, event);
+        await Promise.all([
+            publishUserEvent(withLastSeen, event),
+            publishUserEvent(filtered.filter(id => !maySeeLastSeen.has(id)), { ...event, lastSeenAt: null }),
+        ]);
     } catch (error) {
         console.error("Unable to publish presence:", error);
     }
