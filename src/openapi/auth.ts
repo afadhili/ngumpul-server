@@ -22,6 +22,9 @@ const publicPaths = new Set([
     "/oauth-popup/start",
     "/sign-in/social",
     "/callback/{id}",
+    "/expo-authorization-proxy",
+    "/electron/init-oauth-proxy",
+    "/electron/token",
 ]);
 const optionalSessionPaths = new Set(["/get-session", "/sign-out"]);
 const disabledPaths = new Set([
@@ -33,13 +36,15 @@ const disabledPaths = new Set([
     "/delete-user/callback",
 ]);
 
-export async function getAuthDocumentation() {
+type AuthSchemas = NonNullable<OpenAPIV3_1.ComponentsObject["schemas"]>;
+
+export async function getAuthDocumentation(): Promise<{ paths: OpenAPIV3_1.PathsObject; schemas: AuthSchemas }> {
     const generated = await auth.api.generateOpenAPISchema();
     normalizeNullable(generated);
     const { paths: generatedPaths, components } = generated;
     const paths: OpenAPIV3_1.PathsObject = {};
     for (const [path, pathItem] of Object.entries(generatedPaths)) {
-        if (disabledPaths.has(path)) continue;
+        if (disabledPaths.has(path) || path === "/dash" || path.startsWith("/dash/")) continue;
         const operations: OpenAPIV3_1.PathItemObject = {};
         for (const method of ["get", "post", "put", "patch", "delete"] as const) {
             const operation = pathItem[method];
@@ -85,11 +90,34 @@ export async function getAuthDocumentation() {
                     if (json) documented.requestBody.content["application/x-www-form-urlencoded"] = json;
                 }
             }
+            if (path === "/expo-authorization-proxy") {
+                documented.summary = "Mulai OAuth dari Expo";
+                documented.parameters = [
+                    { in: "query", name: "authorizationURL", required: true, schema: uri },
+                    { in: "query", name: "oauthState", schema: string },
+                ];
+                documented.responses = {
+                    ...documented.responses,
+                    302: redirectResponse("Alihkan ke penyedia OAuth."),
+                };
+            }
+            if (path === "/electron/init-oauth-proxy" || path === "/electron/transfer-user") {
+                const isOAuthProxy = path === "/electron/init-oauth-proxy";
+                documented.parameters = [isOAuthProxy ? "provider" : "client_id", "state", "code_challenge"]
+                    .map(name => ({ in: "query", name, required: true, schema: string }));
+                if (isOAuthProxy) {
+                    documented.responses = {
+                        ...documented.responses,
+                        302: redirectResponse("Alihkan ke penyedia OAuth."),
+                    };
+                }
+            }
             operations[method] = documented;
         }
         paths[`/api/auth${path}`] = operations;
     }
-    return { paths, schemas: components.schemas };
+    // Better Auth types model fields as database fields even after converting them to OpenAPI schemas.
+    return { paths, schemas: components.schemas as AuthSchemas };
 }
 
 const popupCompletion = {

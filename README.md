@@ -52,6 +52,12 @@ Verification, reset, sign-in, and email-change messages use a branded responsive
 
 Set `BETTER_AUTH_URL` to the public origin of the API and `CORS_ORIGIN` to the frontend origin when using a separate browser client. Browser requests that use cookies should include credentials. `DATABASE_URL` is for running the API from your host; `DATABASE_URL_DOCKER` is used by Compose, where PostgreSQL is reached by the `db` service name. Compose reads PostgreSQL database, username, password, and published port from the corresponding `.env` values.
 
+## Native auth and Better Auth Dashboard
+
+Expo and Electron use the same `/api/auth` endpoints. Set the Expo app's scheme to `ngumpul` and register `id.my.afadhili.ngumpul` in Electron. Set `BETTER_AUTH_EXPO_SCHEME` or `BETTER_AUTH_ELECTRON_SCHEME` if the client uses a different scheme. Use `expoClient` with SecureStore in Expo and `electronClient` in the Electron main process. If Electron opens a browser sign-in page, configure it with `electronProxyClient` so login forwards `client_id`, `state`, and `code_challenge` and returns the authorization code to the desktop app. See the [Expo integration guide](https://better-auth.com/docs/integrations/expo) and [Electron integration guide](https://better-auth.com/docs/integrations/electron).
+
+Set `BETTER_AUTH_API_KEY` on the backend to connect to the hosted Better Auth Dashboard. With a key, the plugin sends authentication events to Better Auth Infrastructure and exposes its authenticated admin API at `/api/auth/dash/*`. See the [Dashboard setup guide](https://better-auth.com/docs/infrastructure/getting-started).
+
 ## API documentation
 
 Open [Scalar API Reference](http://localhost:3000/docs) to browse and try the HTTP API. [OpenAPI JSON](http://localhost:3000/openapi) is available for import into API clients. Both endpoints are public and use the current server origin.

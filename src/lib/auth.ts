@@ -1,4 +1,7 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { electron } from "@better-auth/electron";
+import { expo } from "@better-auth/expo";
+import { dash } from "@better-auth/infra";
 import type { Auth } from "better-auth";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
 import { bearer, emailOTP, oauthPopup, openAPI } from "better-auth/plugins";
@@ -12,6 +15,18 @@ const baseURL = process.env.BETTER_AUTH_URL;
 const usesHttps = baseURL?.startsWith("https://") ?? false;
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const dashboardApiKey = process.env.BETTER_AUTH_API_KEY?.trim();
+const expoScheme = readNativeScheme("BETTER_AUTH_EXPO_SCHEME", "ngumpul");
+const electronScheme = readNativeScheme("BETTER_AUTH_ELECTRON_SCHEME", "id.my.afadhili.ngumpul");
+
+function readNativeScheme(name: string, fallback: string) {
+    const value = process.env[name]?.trim().toLowerCase() || fallback;
+    const reservedSchemes = ["http", "https", "file", "ftp", "ws", "wss", "data", "javascript", "blob", "about"];
+    if (!/^[a-z][a-z0-9+.-]*$/.test(value) || reservedSchemes.includes(value)) {
+        throw new Error(`${name} must be a custom URL scheme without a colon or slashes`);
+    }
+    return value;
+}
 
 if (!secret || secret.length < 32) {
     throw new Error("BETTER_AUTH_SECRET must be set to a high-entropy value of at least 32 characters");
@@ -30,7 +45,11 @@ const authOptions: BetterAuthOptions & {
 } = {
     secret,
     baseURL,
-    trustedOrigins: process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [],
+    trustedOrigins: [
+        ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
+        `${expoScheme}://`,
+        `${electronScheme}:/`,
+    ],
     advanced: {
         useSecureCookies: usesHttps,
         defaultCookieAttributes: {
@@ -95,6 +114,9 @@ const authOptions: BetterAuthOptions & {
         }),
         bearer(),
         oauthPopup(),
+        expo(),
+        electron(),
+        ...(dashboardApiKey ? [dash({ apiKey: dashboardApiKey })] : []),
     ],
 };
 

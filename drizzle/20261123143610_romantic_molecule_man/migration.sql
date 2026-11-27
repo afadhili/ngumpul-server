@@ -1,4 +1,0 @@
-ALTER TABLE "direct_message" ADD COLUMN "attachment_id" text;--> statement-breakpoint
-CREATE UNIQUE INDEX "direct_message_attachment_unique" ON "direct_message" ("attachment_id") WHERE "attachment_id" IS NOT NULL;--> statement-breakpoint
-ALTER TABLE "direct_message" ADD CONSTRAINT "direct_message_attachment_id_attachment_id_fkey" FOREIGN KEY ("attachment_id") REFERENCES "attachment"("id") ON DELETE SET NULL;--> statement-breakpoint
-ALTER TABLE "direct_message" DROP CONSTRAINT "direct_message_content_present", ADD CONSTRAINT "direct_message_content_present" CHECK (("text" IS NOT NULL AND length("text") > 0) OR "attachment_id" IS NOT NULL OR "deleted_at" IS NOT NULL);
