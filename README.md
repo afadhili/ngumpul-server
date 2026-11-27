@@ -10,7 +10,7 @@ src/
   server.ts
   controllers/   # HTTP and WebSocket request handling
   models/        # Chat message types and validation
-  openapi/       # OpenAPI schemas and Swagger UI registration
+  openapi/       # OpenAPI schemas and Scalar API reference
   routes/        # Hono route definitions
   services/      # Redis Pub/Sub and application services
   db/            # Drizzle connection, schema, and relations
@@ -54,9 +54,9 @@ Set `BETTER_AUTH_URL` to the public origin of the API and `CORS_ORIGIN` to the f
 
 ## API documentation
 
-Open [Swagger UI](http://localhost:3000/docs) to browse and try the HTTP API. [OpenAPI JSON](http://localhost:3000/openapi) is available for import into API clients. Both endpoints are public and use the current server origin.
+Open [Scalar API Reference](http://localhost:3000/docs) to browse and try the HTTP API. [OpenAPI JSON](http://localhost:3000/openapi) is available for import into API clients. Both endpoints are public and use the current server origin.
 
-For a protected operation in Swagger UI, click **Authorize** and enter the session token returned by sign-in in the **bearerAuth** field. See [ENDPOINT.md](ENDPOINT.md) for WebSocket events, LiveKit, and direct S3 uploads.
+In Scalar, enter the session token returned by sign-in under **Authentication** using **bearerAuth**, then open **Test Request** on a protected operation. See [ENDPOINT.md](ENDPOINT.md) for WebSocket events, LiveKit, and direct S3 uploads.
 
 ## Cloudflare Tunnel
 

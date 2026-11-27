@@ -1,15 +1,16 @@
 import { serveStatic } from "@hono/node-server/serve-static";
-import { swaggerUI } from "@hono/swagger-ui";
+import { Scalar } from "@scalar/hono-api-reference";
 import { getCookies } from "better-auth/cookies";
 import type { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { auth } from "../lib/auth";
 import { getAuthDocumentation } from "./auth";
 import { messageComponents } from "./schemas";
 
-const swaggerAssetRoot = dirname(fileURLToPath(import.meta.resolve("swagger-ui-dist/package.json")));
+const scalarBundleUrl = "/docs/scalar.js";
+const scalarAssetRoot = join(dirname(fileURLToPath(import.meta.resolve("@scalar/api-reference"))), "browser");
 
 export function registerOpenApi(app: Hono) {
     let spec: ReturnType<typeof buildSpec> | undefined;
@@ -21,21 +22,17 @@ export function registerOpenApi(app: Hono) {
         return c.json(await spec);
     });
 
-    app.get("/docs/swagger-ui-dist/swagger-ui.css", serveStatic({ root: swaggerAssetRoot, path: "swagger-ui.css" }));
-    app.get(
-        "/docs/swagger-ui-dist/swagger-ui-bundle.js",
-        serveStatic({ root: swaggerAssetRoot, path: "swagger-ui-bundle.js" }),
-    );
+    app.get(scalarBundleUrl, serveStatic({ root: scalarAssetRoot, path: "standalone.js" }));
     app.get(
         "/docs",
-        swaggerUI({
-            title: "Dokumentasi API Ngumpul",
+        Scalar({
+            pageTitle: "Dokumentasi API Ngumpul",
             url: "/openapi",
-            baseUrl: "/docs",
-            deepLinking: true,
-            docExpansion: "none",
-            filter: true,
-            validatorUrl: "none",
+            cdn: scalarBundleUrl,
+            authentication: { preferredSecurityScheme: "bearerAuth" },
+            persistAuth: false,
+            telemetry: false,
+            withDefaultFonts: false,
         }),
     );
 }

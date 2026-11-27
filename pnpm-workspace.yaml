@@ -1,4 +1,4 @@
 allowBuilds:
   '@apollo/protobufjs': true
   esbuild: true
-  '@scarf/scarf': false
+  vue-demi: false
