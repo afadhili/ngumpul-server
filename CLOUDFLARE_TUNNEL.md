@@ -41,13 +41,13 @@ ingress:
     - hostname: livekit.afadhili.my.id
       service: http://livekit:7880
     - hostname: storage.afadhili.my.id
-      service: http://minio:9000
+      service: http://rustfs:9000
     - hostname: db.afadhili.my.id
       service: tcp://db:5432
     - service: http_status:404
 ```
 
-Replace `afadhili.my.id` with your domain. Use the Docker service names exactly (`app`, `livekit`, `minio`) because cloudflared runs on the same Compose network. The credentials JSON and `cloudflared/config.yml` are ignored by Git; do not commit them.
+Replace `afadhili.my.id` with your domain. Use the Docker service names exactly (`app`, `livekit`, `rustfs`) because cloudflared runs on the same Compose network. The credentials JSON and `cloudflared/config.yml` are ignored by Git; do not commit them.
 
 Validate the ingress rules on the host:
 
@@ -88,7 +88,7 @@ Verify the public routes:
 
 ```sh
 curl -i https://api.afadhili.my.id/health
-curl -I https://storage.afadhili.my.id/minio/health/live
+curl -I https://storage.afadhili.my.id/health
 curl -I https://livekit.afadhili.my.id/
 ```
 
@@ -129,10 +129,10 @@ LIVEKIT_PUBLIC_URL=wss://livekit.afadhili.my.id
 S3_PUBLIC_ENDPOINT=https://storage.afadhili.my.id
 ```
 
-`CORS_ORIGIN` is the frontend origin, which may be a separate hostname or a Cloudflare Pages project. It is also passed to MinIO as `MINIO_API_CORS_ALLOW_ORIGIN`, so recreate both services after changing it:
+`CORS_ORIGIN` is the frontend origin, which may be a separate hostname or a Cloudflare Pages project. It is also passed to RustFS as `RUSTFS_CORS_ALLOWED_ORIGINS`, so recreate both services after changing it:
 
 ```sh
-docker compose up -d app minio
+docker compose up -d app rustfs
 ```
 
 Notes:
@@ -148,7 +148,7 @@ Notes:
 - **PostgreSQL is exposed only through the opt-in `db` TCP route.** Use Cloudflare Access and a least-privilege database user for remote administration. Never expose Redis, and do not add a `tcp://` route for it.
 - The tunnel terminates TLS at Cloudflare. Keep `BETTER_AUTH_URL` on `https` and do not disable the app's Origin checks.
 - Consider adding Cloudflare Access in front of `storage.afadhili.my.id` only if your clients can send service tokens; presigned URLs are designed to be usable by browsers, so Access there can break previews.
-- Keep the MinIO console private. Use an SSH tunnel or Cloudflare Access if you need it.
+- Keep the RustFS console private. Use an SSH tunnel or Cloudflare Access if you need it.
 - Treat the tunnel credentials JSON and `cert.pem` as secrets. They are gitignored.
 
 ## LiveKit media limitation
@@ -172,5 +172,5 @@ Cloudflare Spectrum can proxy UDP/TCP, but it is a paid product and is not part 
 | Tunnel shows no connections | The credentials file or tunnel UUID in `config.yml` is wrong. Re-run `cloudflared tunnel list`. |
 | Login/cookie failures | `BETTER_AUTH_URL` must match the public API URL exactly. |
 | CORS errors | Set `CORS_ORIGIN` to the exact frontend origin and restart the app. |
-| Previews fail | `S3_PUBLIC_ENDPOINT` must be publicly reachable and match the hostname routed to `minio:9000`. |
+| Previews fail | `S3_PUBLIC_ENDPOINT` must be publicly reachable and match the hostname routed to `rustfs:9000`. |
 | WebSocket fails | Cloudflare supports WebSockets, but confirm the app route and `Origin` allowlist. |
