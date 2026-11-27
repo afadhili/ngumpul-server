@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
+import { registerOpenApi } from "./openapi/register";
 import { apiRoutes } from "./routes/api.routes";
 import { authRoutes } from "./routes/auth.routes";
-import { handleGraphqlRequest } from "./routes/graphql.routes";
+import { graphqlGetDocs, graphqlPostDocs, handleGraphqlRequest } from "./routes/graphql.routes";
 import { healthRoutes } from "./routes/health.routes";
 import { serverRoutes } from "./routes/server.routes";
 
@@ -77,7 +78,10 @@ app.use("/api/auth/callback/google", async (c, next) => {
 app.route("/", healthRoutes);
 app.route("/api/auth", authRoutes);
 app.route("/api", apiRoutes);
+app.get("/graphql", graphqlGetDocs);
+app.post("/graphql", graphqlPostDocs);
 app.all("/graphql", handleGraphqlRequest);
 app.route("/api/servers", serverRoutes);
+registerOpenApi(app);
 
 export { app };

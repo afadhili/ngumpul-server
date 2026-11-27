@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { handleAuth } from "../controllers/auth.controller";
 import { auth } from "../lib/auth";
+import { query, redirectResponse, rest, uri } from "../openapi/describe";
 
 const authRoutes = new Hono();
 
@@ -34,7 +35,19 @@ function isTrustedRedirect(value: string): boolean {
  * with `State mismatch`. Visiting this endpoint directly makes setting the
  * state cookie a first-party navigation; the callback can then verify it.
  */
-authRoutes.get("/google/start", async c => {
+authRoutes.get(
+    "/google/start",
+    rest("Autentikasi", "Mulai login Google melalui navigasi browser", undefined, {
+        public: true,
+        description: "Memerlukan konfigurasi Google OAuth dan URL callback pada origin yang dipercaya.",
+        parameters: [query("callbackURL", uri, true), query("errorCallbackURL", uri)],
+        responses: { 302: redirectResponse("Alihkan ke Google dan simpan cookie state.") },
+        errors: [400, 500, 502],
+    }),
+    startGoogleSignIn,
+);
+
+async function startGoogleSignIn(c: Context) {
     const callbackURL = c.req.query("callbackURL");
     const errorCallbackURL = c.req.query("errorCallbackURL") ?? callbackURL;
 
@@ -70,7 +83,7 @@ authRoutes.get("/google/start", async c => {
         console.error("Google sign-in start failed", error);
         return c.json({ error: "Could not start Google sign-in" }, 500);
     }
-});
+}
 
 authRoutes.all("/*", handleAuth);
 

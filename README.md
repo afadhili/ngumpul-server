@@ -10,6 +10,7 @@ src/
   server.ts
   controllers/   # HTTP and WebSocket request handling
   models/        # Chat message types and validation
+  openapi/       # OpenAPI schemas and Swagger UI registration
   routes/        # Hono route definitions
   services/      # Redis Pub/Sub and application services
   db/            # Drizzle connection, schema, and relations
@@ -20,9 +21,11 @@ src/
 
 1. Install dependencies with `pnpm install`.
 2. Copy `.env.example` to `.env` and set distinct random `BETTER_AUTH_SECRET` and `LIVEKIT_API_SECRET` values. Generate each with `openssl rand -hex 32`; never reuse one secret for both services.
-3. Start PostgreSQL and Redis with `docker compose up -d db redis`.
+3. Start PostgreSQL, Redis, and S3-compatible storage with `docker compose up -d --wait db redis minio`.
 4. Apply the database migrations with `pnpm db:migrate`.
 5. Start the API with `pnpm dev`.
+
+For `pnpm dev`, set `S3_ENDPOINT=http://localhost:9000` in `.env`. The API container reads `S3_ENDPOINT_DOCKER`, which defaults to `http://minio:9000`.
 
 The server listens on `http://localhost:3000` by default. `GET /health` is a health check, Better Auth is mounted at `/api/auth/*`, and `GET /api/me` returns the signed-in user or `401`.
 
@@ -49,6 +52,12 @@ Verification, reset, sign-in, and email-change messages use a branded responsive
 
 Set `BETTER_AUTH_URL` to the public origin of the API and `CORS_ORIGIN` to the frontend origin when using a separate browser client. Browser requests that use cookies should include credentials. `DATABASE_URL` is for running the API from your host; `DATABASE_URL_DOCKER` is used by Compose, where PostgreSQL is reached by the `db` service name. Compose reads PostgreSQL database, username, password, and published port from the corresponding `.env` values.
 
+## API documentation
+
+Open [Swagger UI](http://localhost:3000/docs) to browse and try the HTTP API. [OpenAPI JSON](http://localhost:3000/openapi) is available for import into API clients. Both endpoints are public and use the current server origin.
+
+For a protected operation in Swagger UI, click **Authorize** and enter the session token returned by sign-in in the **bearerAuth** field. See [ENDPOINT.md](ENDPOINT.md) for WebSocket events, LiveKit, and direct S3 uploads.
+
 ## Cloudflare Tunnel
 
 To expose the API, LiveKit signaling, and object storage through one tunnel with separate hostnames, see [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md). The optional `cloudflared` service uses a locally-managed tunnel config under the gitignored `cloudflared/` directory and starts with:
@@ -69,7 +78,7 @@ docker compose up --build
 
 Compose starts PostgreSQL, Redis, LiveKit, Silo (an S3-compatible object store), and Mailpit, then the app runs Drizzle migrations and serves the API internally on port `3000`. The app has no published host port: public traffic reaches it through the Cloudflare Tunnel at `https://api.afadhili.my.id`. For direct local API development, run `pnpm dev` (see above) or add a local Compose override that publishes `127.0.0.1:3000`. Redis is available on port `6379`; LiveKit signaling is available at `ws://localhost:7880` using `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` from `.env`, which Compose passes to both the app and LiveKit. LiveKit media uses TCP `7881` and UDP ports `50000-50100`. The S3 API is available at `http://localhost:9000` and its console at `http://localhost:9001`; bucket `pbp-attachments` is created automatically and remains private. Mailpit captures outgoing development email at `http://localhost:8025` and accepts SMTP on port `1025`. PostgreSQL, Redis, and object data use named volumes. Their host ports are bound to `127.0.0.1`, so database, cache, and object-store services are not reachable from other machines. Development credentials in `.env.example` are local only; change them before exposing services.
 
-The attachment API supports images, video, audio, and common document types. `POST /api/attachments/uploads` returns a short-lived signed multipart POST form and records a pending attachment scoped to a friend conversation or server text channel. Upload using all returned `upload.fields` plus the `file` form field, then call `POST /api/attachments/:attachmentId/complete`. Authorized participants can list metadata and request a temporary download URL at `GET /api/attachments/:attachmentId/download-url`. Every returned attachment also includes `previewUrl`, a stable public capability URL at `GET /api/attachments/:attachmentId/preview` that redirects to a short-lived inline S3 URL; this can be used directly in `<img>`, `<video>`, or `<audio>` elements. The preview URL requires no session, so anyone who possesses it can view the attachment; do not use it for secrets. The server validates the destination, declared type, size, membership, and the uploaded object's magic bytes before making it available. Configure `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` in `.env` to target a different S3-compatible provider.
+The attachment API supports images, video, audio, and common document types. `POST /api/attachments/uploads` returns a short-lived signed multipart POST form and records a pending attachment scoped to a friend conversation or server text channel. Upload using all returned `upload.fields` plus the `file` form field, then call `POST /api/attachments/:attachmentId/complete`. Authorized participants can list metadata and request a temporary download URL at `GET /api/attachments/:attachmentId/download-url`. Every returned attachment also includes `previewUrl`, a stable public capability URL at `GET /api/attachments/:attachmentId/preview` that redirects to a short-lived inline S3 URL; this can be used directly in `<img>`, `<video>`, or `<audio>` elements. The preview URL requires no session, so anyone who possesses it can view the attachment; do not use it for secrets. The server validates the destination, declared type, size, membership, and the uploaded object's magic bytes before making it available. To use a different S3-compatible provider, set `S3_BUCKET`, `S3_REGION`, `S3_PUBLIC_ENDPOINT`, and the S3 credentials in `.env`. Set `S3_ENDPOINT` for the host API and `S3_ENDPOINT_DOCKER` for the Compose API container.
 
 Server-management endpoints are `PATCH/DELETE /api/servers/:serverId` (owner/admin edit, owner delete), `PATCH/DELETE /api/servers/:serverId/channels/:channelId` (owner/admin), `GET/POST /api/servers/:serverId/members` (list/add), and `PATCH/DELETE /api/servers/:serverId/members/:userId` (owner role changes; members may leave; owner/admin removal rules). Text-channel history and writes use `GET/POST /api/servers/:serverId/channels/:channelId/messages`; edit or delete with `PATCH/DELETE /api/servers/:serverId/channels/:channelId/messages/:messageId`. Listing supports `limit` and `before=<message-id>` pagination; sending accepts `text`, `attachmentId`, `replyToMessageId`, `forwardedFromId`, `location`, `attachmentDurationMs`, `expiresInSeconds`, `poll`, `encrypted`, and `isAnnouncement` (owner/admin), and deletion requires `?scope=me|everyone`.
 

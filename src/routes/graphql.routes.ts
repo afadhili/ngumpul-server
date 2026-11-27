@@ -1,3 +1,4 @@
+import { describeRoute } from "hono-openapi";
 import { ApolloServer, HeaderMap } from "@apollo/server";
 import {
     GraphQLBoolean,
@@ -13,6 +14,44 @@ import db from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { getSessionUserId } from "../lib/request-auth";
 import { eq } from "drizzle-orm";
+import { array, jsonResponse, nullable, object, query, sessionSecurity, string } from "../openapi/describe";
+
+const graphqlQuery = { type: "string", example: "{ me { id username } myProfile { displayName } }" } as const;
+const graphqlError = object({ errors: array(object({ message: string })) });
+const graphqlDocs = {
+    tags: ["GraphQL"],
+    description: "Query baca akun (me) dan profil (myProfile). Respons 200 juga dapat memuat errors.",
+    security: sessionSecurity,
+    responses: {
+        200: jsonResponse("Hasil eksekusi GraphQL.", object({
+            data: nullable({ type: "object" }), errors: array(object({ message: string })),
+        }, [])),
+        400: jsonResponse("Request GraphQL tidak valid.", graphqlError),
+        401: jsonResponse("Sesi diperlukan.", graphqlError),
+    },
+};
+
+export const graphqlGetDocs = describeRoute({
+    ...graphqlDocs,
+    summary: "Jalankan query GraphQL dari URL",
+    parameters: [
+        query("query", graphqlQuery, true), query("operationName", string),
+        query("variables", { ...string, description: "Objek variabel sebagai string JSON." }),
+        { in: "header", name: "Apollo-Require-Preflight", schema: string, example: "true",
+            description: "Apollo memerlukan header ini atau Content-Type: application/json untuk GET dari browser." },
+    ],
+});
+export const graphqlPostDocs = describeRoute({
+    ...graphqlDocs,
+    summary: "Jalankan query GraphQL dari body JSON",
+    requestBody: {
+        required: true,
+        content: { "application/json": { schema: object({
+            query: graphqlQuery, variables: { type: "object" }, operationName: string,
+        }, ["query"]) } },
+    },
+    responses: { ...graphqlDocs.responses, 413: jsonResponse("Body melebihi 1 MiB.", graphqlError) },
+});
 
 type GraphqlContext = { userId: string };
 

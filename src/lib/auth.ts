@@ -1,6 +1,7 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import type { Auth } from "better-auth";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
-import { bearer, emailOTP, oauthPopup } from "better-auth/plugins";
+import { bearer, emailOTP, oauthPopup, openAPI } from "better-auth/plugins";
 import "dotenv/config";
 import { db } from "../db/index";
 import * as schema from "../db/schema/auth";
@@ -24,7 +25,9 @@ if (Boolean(googleClientId) !== Boolean(googleClientSecret)) {
     throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be set to enable Google sign-in");
 }
 
-const authOptions: BetterAuthOptions = {
+const authOptions: BetterAuthOptions & {
+    plugins: [ReturnType<typeof openAPI>, ...NonNullable<BetterAuthOptions["plugins"]>];
+} = {
     secret,
     baseURL,
     trustedOrigins: process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : [],
@@ -79,7 +82,9 @@ const authOptions: BetterAuthOptions = {
             "/forget-password/email-otp": { window: 60, max: 3 },
         },
     },
+    disabledPaths: ["/open-api/generate-schema"],
     plugins: [
+        openAPI({ disableDefaultReference: true }),
         emailOTP({
             overrideDefaultEmailVerification: true,
             otpLength: 6,
@@ -93,4 +98,4 @@ const authOptions: BetterAuthOptions = {
     ],
 };
 
-export const auth = betterAuth(authOptions);
+export const auth: Auth<typeof authOptions> = betterAuth(authOptions);

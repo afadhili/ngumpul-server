@@ -29,7 +29,7 @@ const noMeta: MessageMeta = { reactions: [], mentions: [], poll: null, pinned: f
 export async function listDirectMessages(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
-    const peerId = c.req.param("peerId") ?? "";
+    const peerId = c.req.param("id") ?? "";
     if (!await canAccessDirectConversation(userId, peerId)) return c.json({ error: "You do not have access to this conversation" }, 403);
 
     const rawLimit = Number(c.req.query("limit") ?? 50);
@@ -74,7 +74,7 @@ export async function listDirectMessages(c: Context) {
 export async function sendDirectMessage(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
-    const peerId = c.req.param("peerId") ?? "";
+    const peerId = c.req.param("id") ?? "";
     if (!await canAccessDirectConversation(userId, peerId)) return c.json({ error: "You do not have access to this conversation" }, 403);
     const body = await readJson(c);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
@@ -88,7 +88,7 @@ export async function sendDirectMessage(c: Context) {
 export async function editDirectMessage(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
-    const messageId = c.req.param("messageId") ?? "";
+    const messageId = c.req.param("id") ?? "";
     const [current] = await db.select().from(directMessage)
         .where(and(eq(directMessage.id, messageId), eq(directMessage.senderId, userId), isNull(directMessage.deletedAt))).limit(1);
     if (!current) return c.json({ error: "Message not found" }, 404);
@@ -109,7 +109,7 @@ export async function editDirectMessage(c: Context) {
 export async function deleteDirectMessage(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
-    const messageId = c.req.param("messageId") ?? "";
+    const messageId = c.req.param("id") ?? "";
     const scope = c.req.query("scope");
     if (scope !== "me" && scope !== "everyone") return c.json({ error: "scope must be me or everyone" }, 400);
     const [current] = await db.select().from(directMessage).where(and(

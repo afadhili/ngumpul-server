@@ -15,6 +15,8 @@
 
 Gunakan `http://localhost:3000` saat menjalankan server lokal, atau `https://api.afadhili.my.id` untuk API publik. Endpoint WebSocket memakai `ws://localhost:3000` atau `wss://api.afadhili.my.id`.
 
+Buka [Swagger UI](http://localhost:3000/docs) untuk mencoba endpoint HTTP, atau impor [spesifikasi OpenAPI](http://localhost:3000/openapi) ke klien API. Di Swagger UI, pilih **Authorize** dan masukkan token sesi pada kolom **bearerAuth** untuk endpoint yang membutuhkan login.
+
 Untuk mencoba dari terminal, ambil token dari respons login yang berhasil. Ganti nilai contoh `TOKEN`, `user-b`, dan parameter seperti `:messageId` dengan nilai dari respons API.
 
 ```sh
