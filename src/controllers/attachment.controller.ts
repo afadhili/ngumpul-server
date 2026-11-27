@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, or } from "drizzle-orm";
 import type { Context } from "hono";
-import { db } from "../db/index";
+import { db, type DbTransaction } from "../db/index";
 import { attachment } from "../db/schema/attachment";
 import { directMessage } from "../db/schema/direct-message";
-import { friendship, serverChannel, serverMember } from "../db/schema/community";
+import { getChannelAccess } from "../lib/channel-access";
+import { canAccessDirectConversation } from "../lib/direct-conversation";
 import { getSessionUserId } from "../lib/request-auth";
 import { emitDirectMessage } from "./direct-message.controller";
 import { attachmentPolicies, matchesDeclaredMimeType } from "../models/attachment-policy";
@@ -13,7 +14,7 @@ import {
     createAttachmentPreviewUrl,
     createAttachmentUploadForm,
     deleteObject,
-    finalizeUploadedObject,
+    copyUploadedObject,
     inspectObject,
     isMissingObject,
     readObjectPrefix,
@@ -79,53 +80,63 @@ export async function completeAttachmentUpload(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
     const attachmentId = c.req.param("attachmentId") ?? "";
-    const [item] = await db.select().from(attachment)
-        .where(and(eq(attachment.id, attachmentId), eq(attachment.uploaderId, userId)))
-        .limit(1);
-    if (!item) return c.json({ error: "Attachment not found" }, 404);
-    if (item.status === "ready") return c.json({ attachment: toPublicAttachment(c, item) }, 200);
+    let stagingKey: string | undefined;
+    const response = await db.transaction(async tx => {
+        // Serialize finalization and deletion of this attachment across server instances.
+        const [item] = await tx.select().from(attachment)
+            .where(and(eq(attachment.id, attachmentId), eq(attachment.uploaderId, userId)))
+            .for("update");
+        if (!item) return c.json({ error: "Attachment not found" }, 404);
+        if (item.status === "ready") return c.json({ attachment: toPublicAttachment(c, item) }, 200);
 
-    if (item.uploadExpiresAt.getTime() <= Date.now()) {
-        await deleteObject(item.uploadKey).catch(() => undefined);
-        await db.delete(attachment).where(eq(attachment.id, item.id));
-        return c.json({ error: "Upload authorization expired" }, 410);
-    }
+        try {
+            if (item.uploadExpiresAt.getTime() <= Date.now()) {
+                await discardUpload(tx, item);
+                return c.json({ error: "Upload authorization expired" }, 410);
+            }
 
-    let object;
-    try {
-        object = await inspectObject(item.uploadKey);
-    } catch (error) {
-        if (isMissingObject(error)) return c.json({ error: "Uploaded object was not found" }, 409);
-        return c.json({ error: "Object storage is unavailable" }, 503);
-    }
-    if (object.ContentLength !== item.sizeBytes || object.ContentType?.toLowerCase() !== item.mimeType) {
-        await deleteObject(item.uploadKey).catch(() => undefined);
-        await db.delete(attachment).where(eq(attachment.id, item.id));
-        return c.json({ error: "Uploaded file does not match its declared size or content type" }, 400);
-    }
+            let object;
+            try {
+                object = await inspectObject(item.uploadKey);
+            } catch (error) {
+                if (isMissingObject(error)) return c.json({ error: "Uploaded object was not found" }, 409);
+                return c.json({ error: "Object storage is unavailable" }, 503);
+            }
+            if (object.ContentLength !== item.sizeBytes || object.ContentType?.toLowerCase() !== item.mimeType) {
+                await discardUpload(tx, item);
+                return c.json({ error: "Uploaded file does not match its declared size or content type" }, 400);
+            }
 
-    try {
-        await finalizeUploadedObject(item.uploadKey, item.storageKey, item.mimeType, item.fileName);
-        const prefix = await readObjectPrefix(item.storageKey, 4096);
-        if (!prefix || !matchesDeclaredMimeType(item.mimeType, prefix)) {
-            await deleteObject(item.storageKey).catch(() => undefined);
-            await db.delete(attachment).where(eq(attachment.id, item.id));
-            return c.json({ error: "Uploaded file content does not match its declared type" }, 400);
+            await copyUploadedObject(item.uploadKey, item.storageKey, item.mimeType, item.fileName);
+            const prefix = await readObjectPrefix(item.storageKey, 4096);
+            if (!prefix || !matchesDeclaredMimeType(item.mimeType, prefix)) {
+                await discardUpload(tx, item);
+                return c.json({ error: "Uploaded file content does not match its declared type" }, 400);
+            }
+        } catch (error) {
+            console.error("Unable to finalize attachment upload:", error);
+            return c.json({ error: "Unable to finalize upload" }, 502);
         }
-        const [ready] = await db.update(attachment)
-            .set({ status: "ready", uploadedAt: new Date() })
-            .where(and(eq(attachment.id, item.id), eq(attachment.uploaderId, userId), eq(attachment.status, "pending")))
-            .returning();
-        if (ready) return c.json({ attachment: toPublicAttachment(c, ready) }, 200);
 
-        const [current] = await db.select().from(attachment).where(eq(attachment.id, item.id)).limit(1);
-        return current?.status === "ready"
-            ? c.json({ attachment: toPublicAttachment(c, current) }, 200)
-            : c.json({ error: "Unable to finalize upload" }, 409);
-    } catch (error) {
-        console.error("Unable to finalize attachment upload:", error);
-        return c.json({ error: "Unable to finalize upload" }, 502);
+        const [ready] = await tx.update(attachment)
+            .set({ status: "ready", uploadedAt: new Date() })
+            .where(eq(attachment.id, item.id))
+            .returning();
+        stagingKey = item.uploadKey;
+        return c.json({ attachment: toPublicAttachment(c, ready) }, 200);
+    });
+
+    // Keep the original bytes available for retry until the database commit succeeds.
+    if (stagingKey) {
+        await deleteObject(stagingKey).catch(error => console.error("Unable to remove staged attachment:", error));
     }
+    return response;
+}
+
+async function discardUpload(tx: DbTransaction, item: typeof attachment.$inferSelect) {
+    await deleteObject(item.storageKey);
+    await deleteObject(item.uploadKey);
+    await tx.delete(attachment).where(eq(attachment.id, item.id));
 }
 
 export async function listConversationAttachments(c: Context) {
@@ -161,9 +172,13 @@ export async function getAttachmentDownloadUrl(c: Context) {
         .where(and(eq(attachment.id, attachmentId), eq(attachment.status, "ready")))
         .limit(1);
     if (!item) return c.json({ error: "Attachment not found" }, 404);
-    const accessTargetId = item.targetType === "direct" && item.targetId === userId
-        ? item.uploaderId
-        : item.targetId;
+    let accessTargetId = item.targetId;
+    if (item.targetType === "direct") {
+        if (userId !== item.uploaderId && userId !== item.targetId) {
+            return c.json({ error: "Attachment not found" }, 404);
+        }
+        if (userId === item.targetId) accessTargetId = item.uploaderId;
+    }
     if (!await canAccessTarget(userId, item.targetType as TargetType, accessTargetId)) {
         return c.json({ error: "Attachment not found" }, 404);
     }
@@ -204,29 +219,36 @@ export async function deleteAttachment(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
     const attachmentId = c.req.param("attachmentId") ?? "";
-    const [item] = await db.select().from(attachment)
-        .where(and(eq(attachment.id, attachmentId), eq(attachment.uploaderId, userId)))
-        .limit(1);
-    if (!item) return c.json({ error: "Attachment not found" }, 404);
+    const updatedMessages: (typeof directMessage.$inferSelect)[] = [];
+    const response = await db.transaction(async tx => {
+        const [item] = await tx.select().from(attachment)
+            .where(and(eq(attachment.id, attachmentId), eq(attachment.uploaderId, userId)))
+            .for("update");
+        if (!item) return c.json({ error: "Attachment not found" }, 404);
 
-    try {
-        await Promise.all([deleteObject(item.storageKey), deleteObject(item.uploadKey)]);
-    } catch (error) {
-        console.error("Unable to remove attachment object:", error);
-        return c.json({ error: "Unable to remove attachment object" }, 502);
+        try {
+            await Promise.all([deleteObject(item.storageKey), deleteObject(item.uploadKey)]);
+        } catch (error) {
+            console.error("Unable to remove attachment object:", error);
+            return c.json({ error: "Unable to remove attachment object" }, 502);
+        }
+        const linkedMessages = await tx.select().from(directMessage).where(eq(directMessage.attachmentId, item.id));
+        for (const message of linkedMessages) {
+            const now = new Date();
+            const [updated] = await tx.update(directMessage).set({
+                attachmentId: null,
+                ...(message.text ? {} : { deletedAt: now }),
+                updatedAt: now,
+            }).where(eq(directMessage.id, message.id)).returning();
+            if (updated) updatedMessages.push(updated);
+        }
+        await tx.delete(attachment).where(eq(attachment.id, item.id));
+        return c.body(null, 204);
+    });
+    for (const message of updatedMessages) {
+        await emitDirectMessage(message.text ? "updated" : "deleted", toDirectMessageRecord(message));
     }
-    const linkedMessages = await db.select().from(directMessage).where(eq(directMessage.attachmentId, item.id));
-    for (const message of linkedMessages) {
-        const now = new Date();
-        const [updated] = await db.update(directMessage).set({
-            attachmentId: null,
-            ...(message.text ? {} : { deletedAt: now }),
-            updatedAt: now,
-        }).where(eq(directMessage.id, message.id)).returning();
-        if (updated) await emitDirectMessage(message.text ? "updated" : "deleted", toDirectMessageRecord(updated));
-    }
-    await db.delete(attachment).where(eq(attachment.id, item.id));
-    return c.body(null, 204);
+    return response;
 }
 
 function toDirectMessageRecord(row: typeof import("../db/schema/direct-message").directMessage.$inferSelect) {
@@ -259,26 +281,9 @@ function toDirectMessageRecord(row: typeof import("../db/schema/direct-message")
 }
 
 async function canAccessTarget(userId: string, targetType: TargetType, targetId: string) {
-    if (targetType === "direct") {
-        if (targetId === userId) return false;
-        const firstId = userId < targetId ? userId : targetId;
-        const secondId = userId < targetId ? targetId : userId;
-        const [link] = await db.select({ userId: friendship.userId }).from(friendship)
-            .where(and(eq(friendship.userId, firstId), eq(friendship.friendUserId, secondId)))
-            .limit(1);
-        return Boolean(link);
-    }
-
-    const [membership] = await db.select({ userId: serverMember.userId })
-        .from(serverChannel)
-        .innerJoin(serverMember, eq(serverMember.serverId, serverChannel.serverId))
-        .where(and(
-            eq(serverChannel.id, targetId),
-            eq(serverChannel.kind, "text"),
-            eq(serverMember.userId, userId),
-        ))
-        .limit(1);
-    return Boolean(membership);
+    if (targetType === "direct") return canAccessDirectConversation(userId, targetId);
+    const access = await getChannelAccess(userId, targetId);
+    return access?.kind === "text";
 }
 
 async function readJson(c: Context): Promise<Record<string, unknown> | null> {

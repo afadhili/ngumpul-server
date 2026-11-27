@@ -543,18 +543,11 @@ function toChannelSummary(row: typeof serverChannel.$inferSelect): ChannelSummar
 
 async function deleteChannelAttachments(channelIds: string[]) {
     if (channelIds.length === 0) return;
-    const files = await db.select({
-        id: attachment.id,
-        storageKey: attachment.storageKey,
-        uploadKey: attachment.uploadKey,
-    }).from(attachment).where(and(
+    const files = await db.delete(attachment).where(and(
         eq(attachment.targetType, "channel"),
         inArray(attachment.targetId, channelIds),
-    ));
+    )).returning({ storageKey: attachment.storageKey, uploadKey: attachment.uploadKey });
     await Promise.allSettled(files.flatMap(file => [deleteObject(file.storageKey), deleteObject(file.uploadKey)]));
-    if (files.length > 0) {
-        await db.delete(attachment).where(inArray(attachment.id, files.map(file => file.id)));
-    }
 }
 
 async function readJson(c: Context): Promise<Record<string, unknown> | null> {

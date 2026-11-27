@@ -90,7 +90,7 @@ export async function readObjectPrefix(key: string, maxBytes: number) {
     return bytes.subarray(0, maxBytes);
 }
 
-export async function finalizeUploadedObject(uploadKey: string, storageKey: string, mimeType: string, fileName: string) {
+export async function copyUploadedObject(uploadKey: string, storageKey: string, mimeType: string, fileName: string) {
     await ensureBucketExists();
     const safeName = encodeURIComponent(fileName).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
     const disposition = /^(image|audio|video)\//.test(mimeType) ? "inline" : "attachment";
@@ -103,7 +103,6 @@ export async function finalizeUploadedObject(uploadKey: string, storageKey: stri
         ContentDisposition: `${disposition}; filename*=UTF-8''${safeName}`,
         Metadata: { originalfilename: encodeURIComponent(fileName) },
     }));
-    await deleteObject(uploadKey);
 }
 
 export async function createAttachmentDownloadUrl(key: string, mimeType: string, fileName: string) {

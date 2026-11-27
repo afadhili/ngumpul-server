@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { Context } from "hono";
-import { RoomServiceClient } from "livekit-server-sdk";
+import { RoomServiceClient, TwirpError } from "livekit-server-sdk";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { serverChannel } from "../db/schema/community";
@@ -9,8 +9,8 @@ import { getSessionUserId } from "../lib/request-auth";
 import { summarizeVoiceTracks } from "../lib/voice-tracks";
 
 function liveKitHttpUrl() {
-    const publicUrl = process.env.LIVEKIT_PUBLIC_URL ?? "ws://localhost:7880";
-    return publicUrl.replace(/^ws/i, "http");
+    const url = process.env.LIVEKIT_URL || process.env.LIVEKIT_PUBLIC_URL || "ws://localhost:7880";
+    return url.replace(/^ws/i, "http");
 }
 
 export async function listVoiceParticipants(c: Context) {
@@ -38,8 +38,9 @@ export async function listVoiceParticipants(c: Context) {
         participants = await client.listParticipants(room);
     } catch (error) {
         // LiveKit answers with a not-found error (404) when nobody has joined the room yet.
-        const message = error instanceof Error ? error.message : String(error);
-        if (/not\s*found|404/i.test(message)) return c.json({ room, participants: [] }, 200);
+        if (error instanceof TwirpError && error.code === "not_found") {
+            return c.json({ room, participants: [] }, 200);
+        }
         console.error("Unable to list LiveKit participants:", error);
         return c.json({ error: "Voice service is unavailable" }, 502);
     }
@@ -130,8 +131,9 @@ export async function updateVoiceParticipant(c: Context) {
             });
         }
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (/not\s*found|404/i.test(message)) return c.json({ error: "Participant not found" }, 404);
+        if (error instanceof TwirpError && error.code === "not_found") {
+            return c.json({ error: "Participant not found" }, 404);
+        }
         console.error("Unable to update LiveKit participant:", error);
         return c.json({ error: "Voice service is unavailable" }, 502);
     }

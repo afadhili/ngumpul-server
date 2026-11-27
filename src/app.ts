@@ -41,7 +41,8 @@ app.use(
     "/api/*",
     bodyLimit({
         maxSize: oneMiB,
-        onError: c => c.json(bodyLimitError, 413),
+        // The body may still be arriving. Keep the client from reusing this connection.
+        onError: c => c.json(bodyLimitError, 413, { Connection: "close" }),
     }),
 );
 

@@ -82,7 +82,8 @@ check("database readiness", ready.status === 200 && ready.body?.status === "read
 
 const A = "smoke-a-user";
 const B = "smoke-b-user";
-await db.delete(user).where(inArray(user.id, [A, B]));
+const C = "smoke-c-user";
+await db.delete(user).where(inArray(user.id, [A, B, C]));
 await seed(A, "smoke_a", "smoke-a@example.test");
 await seed(B, "smoke_b", "smoke-b@example.test");
 
@@ -101,6 +102,17 @@ if (friendReq.status === 201) {
 }
 const friends = await call("/api/friends", { token: tokenA });
 check("friends list", friends.status === 200 && friends.body.friends.length >= 1, friends.body?.friends?.length);
+
+const oversized = await call("/api/preferences", {
+    method: "PUT",
+    token: tokenA,
+    body: { wallpaper: "x".repeat(1024 * 1024) },
+});
+check("oversized request rejected", oversized.status === 413, oversized.status);
+for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await call("/api/me", { token: tokenA });
+    check("request after HTTP 413", response.status === 200 && response.body?.user?.id === A, response.status);
+}
 
 // server + channels
 const server = await call("/api/servers", {
@@ -353,6 +365,69 @@ check(
     voiceParticipants.status === 200 && Array.isArray(voiceParticipants.body.participants),
     voiceParticipants.status,
 );
+const missingParticipant = await call(
+    `/api/servers/${serverId}/channels/${voiceId}/voice-participants/${randomUUID()}`,
+    { method: "PATCH", token: tokenA, body: { muted: true } },
+);
+check("LiveKit returns 404 for a missing participant", missingParticipant.status === 404, missingParticipant.status);
+
+// Attachment permissions and idempotency against the configured S3 service.
+await seed(C, "smoke_c", "smoke-c@example.test");
+const signC = await signIn("smoke-c@example.test");
+const tokenC = signC.body?.token;
+check("sign-in C", signC.status === 200 && Boolean(tokenC), signC.status);
+const otherFriend = await call("/api/friends/requests", {
+    method: "POST", token: tokenB, body: { username: "smoke_c" },
+});
+check("recipient's friendship with C requested", otherFriend.status === 201, otherFriend.status);
+const otherAcceptance = await call(`/api/friends/requests/${otherFriend.body?.request?.id}/accept`, {
+    method: "POST", token: tokenC,
+});
+check("recipient's friendship with C accepted", otherAcceptance.status === 200, otherAcceptance.status);
+const fileContents = "Ngumpul smoke attachment\n";
+const startUpload = await call("/api/attachments/uploads", {
+    method: "POST",
+    token: tokenA,
+    body: {
+        targetType: "direct",
+        targetId: B,
+        fileName: "smoke.txt",
+        mimeType: "text/plain",
+        sizeBytes: Buffer.byteLength(fileContents),
+    },
+});
+const attachmentId = startUpload.body?.attachment?.id;
+const uploadForm = startUpload.body?.upload;
+check("create attachment upload", startUpload.status === 201 && Boolean(attachmentId && uploadForm), startUpload.status);
+if (attachmentId && uploadForm) {
+    const path = `/api/attachments/${attachmentId}`;
+    try {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(uploadForm.fields)) form.append(key, value);
+        form.append("file", new Blob([fileContents], { type: "text/plain" }), "smoke.txt");
+        const upload = await fetch(uploadForm.url, { method: "POST", body: form });
+        await upload.text();
+        check("upload file to storage", upload.ok, upload.status);
+        const completed = await Promise.all(Array.from({ length: 5 }, () =>
+            call(`${path}/complete`, { method: "POST", token: tokenA })));
+        const uploadedAt = completed[0].body?.attachment?.uploadedAt;
+        check("parallel attachment finalization returns one result", Boolean(uploadedAt) && completed.every(result =>
+            result.status === 200 && result.body?.attachment?.id === attachmentId &&
+            result.body.attachment.uploadedAt === uploadedAt), completed.map(result => result.status));
+        const recipient = await call(`${path}/download-url`, { token: tokenB });
+        check("DM recipient receives a download URL", recipient.status === 200 && Boolean(recipient.body?.url), recipient.status);
+        if (recipient.body?.url) {
+            const file = await fetch(recipient.body.url);
+            const downloaded = await file.text();
+            check("signed URL returns the stored bytes", file.ok && downloaded === fileContents, file.status);
+        }
+        const bystander = await call(`${path}/download-url`, { token: tokenC });
+        check("DM download requires conversation participation", bystander.status === 404, bystander.status);
+    } finally {
+        const deleted = await call(path, { method: "DELETE", token: tokenA });
+        check("remove test attachment", deleted.status === 204, deleted.status);
+    }
+}
 
 // translation (unconfigured)
 const translation = await call("/api/translations", {
@@ -455,7 +530,7 @@ channelSocket.socket.close();
 userSocket.socket.close();
 
 // cleanup
-await db.delete(user).where(inArray(user.id, [A, B]));
+await db.delete(user).where(inArray(user.id, [A, B, C]));
 const remaining = await db.select({ id: user.id }).from(user).where(eq(user.id, A));
 check("cleanup users", remaining.length === 0, remaining.length);
 
