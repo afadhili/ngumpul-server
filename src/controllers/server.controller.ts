@@ -9,6 +9,7 @@ import { communityServer, friendship, serverCategory, serverChannel, serverInvit
 import { getServerRole } from "../lib/channel-access";
 import { isUniqueViolation } from "../lib/db-errors";
 import type { ChannelSummary, MemberSummary, ServerSummary } from "../models/realtime-event";
+import { accountAvatar } from "../lib/profile-avatar";
 import { getSessionUserId } from "../lib/request-auth";
 import { sendNotification } from "../services/notification.service";
 import { deleteObject } from "../services/object-storage.service";
@@ -510,17 +511,17 @@ export async function listServerMembers(c: Context) {
         username: user.username,
         displayName: profile.displayName,
         avatar: sql<string | null>`case
-            when ${user.id} = ${userId} then ${profile.avatar}
+            when ${user.id} = ${userId} then ${accountAvatar}
             when exists (
                 select 1 from ${userBlock} where (${userBlock.blockerId} = ${userId} and ${userBlock.blockedId} = ${user.id})
                     or (${userBlock.blockerId} = ${user.id} and ${userBlock.blockedId} = ${userId})
             ) then null
             when ${profile.photoVisibility} = 'everyone' or (
-                ${profile.photoVisibility} = 'friends' and exists (
+                coalesce(${profile.photoVisibility}, 'friends') = 'friends' and exists (
                     select 1 from ${friendship} where (${friendship.userId} = ${userId} and ${friendship.friendUserId} = ${user.id})
                         or (${friendship.userId} = ${user.id} and ${friendship.friendUserId} = ${userId})
                 )
-            ) then ${profile.avatar}
+            ) then ${accountAvatar}
             else null end`,
         role: serverMember.role,
         joinedAt: serverMember.joinedAt,

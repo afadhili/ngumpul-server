@@ -7,6 +7,7 @@ import { friendship, userBlock } from "../db/schema/community";
 import { canAccessDirectConversation } from "../lib/direct-conversation";
 import { createAttachmentPreviewUrl, deleteObject, storeProfileImage } from "../services/object-storage.service";
 import { isUniqueViolation } from "../lib/db-errors";
+import { accountAvatar } from "../lib/profile-avatar";
 import { getSessionUserId } from "../lib/request-auth";
 
 type ProfileInput = {
@@ -30,7 +31,7 @@ export async function getProfile(c: Context) {
             username: user.username,
             displayName: profile.displayName,
             bio: profile.bio,
-            avatar: profile.avatar,
+            avatar: accountAvatar,
             banner: profile.banner,
             location: profile.location,
             website: profile.website,
@@ -157,7 +158,7 @@ export async function getVisibleProfile(c: Context) {
     const target = c.req.param("userId") ?? "";
     const [row] = await db.select({
         userId: user.id, username: user.username, displayName: profile.displayName, bio: profile.bio,
-        avatar: profile.avatar, banner: profile.banner, socialLinks: profile.socialLinks,
+        avatar: accountAvatar, banner: profile.banner, socialLinks: profile.socialLinks,
         isPublic: profile.isPublic, photoVisibility: profile.photoVisibility,
     }).from(user).leftJoin(profile, eq(profile.userId, user.id)).where(eq(user.id, target)).limit(1);
     if (!row) return c.json({ error: "User not found" }, 404);
@@ -264,7 +265,7 @@ export async function searchUsers(c: Context) {
 
     const prefix = query.replace(/[\\%_]/g, "\\$&");
     const matches = await db
-        .select({ userId: user.id, username: user.username, displayName: profile.displayName, avatar: profile.avatar, photoVisibility: profile.photoVisibility })
+        .select({ userId: user.id, username: user.username, displayName: profile.displayName, avatar: accountAvatar, photoVisibility: profile.photoVisibility })
         .from(user)
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(and(ilike(user.username, `${prefix}%`), or(isNull(profile.userId), eq(profile.isPublic, true))))
@@ -285,7 +286,7 @@ export async function searchUsers(c: Context) {
         userId: match.userId,
         username: match.username,
         displayName: match.displayName,
-        avatar: match.photoVisibility === "everyone" || (match.photoVisibility === "friends" && friendIds.has(match.userId))
+        avatar: match.photoVisibility === "everyone" || (match.photoVisibility !== "nobody" && friendIds.has(match.userId))
             ? match.avatar
             : null,
     }));

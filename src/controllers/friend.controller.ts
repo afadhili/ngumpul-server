@@ -6,6 +6,7 @@ import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { friendRequest, friendship, userBlock } from "../db/schema/community";
 import { isUniqueViolation } from "../lib/db-errors";
+import { accountAvatar } from "../lib/profile-avatar";
 import { getSessionUserId } from "../lib/request-auth";
 import { revokeDirectConversation } from "../services/socket-registry.service";
 
@@ -22,7 +23,7 @@ export async function listFriends(c: Context) {
 
     const profiles = await db
         .select({ userId: user.id, username: user.username, displayName: profile.displayName,
-            avatar: sql<string | null>`case when ${profile.photoVisibility} = 'nobody' then null else ${profile.avatar} end` })
+            avatar: sql<string | null>`case when ${profile.photoVisibility} = 'nobody' then null else ${accountAvatar} end` })
         .from(user)
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(inArray(user.id, friendIds));

@@ -6,6 +6,7 @@ import { profile, user } from "../db/schema/auth";
 import { friendRequest, friendship, userBlock } from "../db/schema/community";
 import { createFriendQrCode, readFriendQrCode } from "../lib/friend-qr";
 import { isUniqueViolation } from "../lib/db-errors";
+import { accountAvatar } from "../lib/profile-avatar";
 import { getSessionUserId } from "../lib/request-auth";
 
 async function findFriendTarget(userId: string, targetId: string) {
@@ -13,7 +14,7 @@ async function findFriendTarget(userId: string, targetId: string) {
         id: user.id,
         username: user.username,
         displayName: profile.displayName,
-        avatar: profile.avatar,
+        avatar: accountAvatar,
         photoVisibility: profile.photoVisibility,
     }).from(user).leftJoin(profile, eq(profile.userId, user.id)).where(eq(user.id, targetId)).limit(1);
     return target ?? null;
