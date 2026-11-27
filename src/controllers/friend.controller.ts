@@ -22,7 +22,7 @@ export async function listFriends(c: Context) {
     if (friendIds.length === 0) return c.json({ friends: [] }, 200);
 
     const profiles = await db
-        .select({ userId: user.id, username: user.username, displayName: profile.displayName,
+        .select({ userId: user.id, name: user.name, username: user.username, displayName: profile.displayName,
             avatar: sql<string | null>`case when ${profile.photoVisibility} = 'nobody' then null else ${accountAvatar} end` })
         .from(user)
         .leftJoin(profile, eq(profile.userId, user.id))
@@ -37,13 +37,13 @@ export async function listFriendRequests(c: Context) {
 
     const [incoming, outgoing] = await Promise.all([
         db
-            .select({ id: friendRequest.id, userId: user.id, username: user.username, displayName: profile.displayName, createdAt: friendRequest.createdAt })
+            .select({ id: friendRequest.id, userId: user.id, name: user.name, username: user.username, displayName: profile.displayName, createdAt: friendRequest.createdAt })
             .from(friendRequest)
             .innerJoin(user, eq(user.id, friendRequest.requesterId))
             .leftJoin(profile, eq(profile.userId, user.id))
             .where(and(eq(friendRequest.recipientId, userId), eq(friendRequest.status, "pending"))),
         db
-            .select({ id: friendRequest.id, userId: user.id, username: user.username, displayName: profile.displayName, createdAt: friendRequest.createdAt })
+            .select({ id: friendRequest.id, userId: user.id, name: user.name, username: user.username, displayName: profile.displayName, createdAt: friendRequest.createdAt })
             .from(friendRequest)
             .innerJoin(user, eq(user.id, friendRequest.recipientId))
             .leftJoin(profile, eq(profile.userId, user.id))

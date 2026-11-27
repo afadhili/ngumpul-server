@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte } from "drizzle-orm";
 import { db, type DbExecutor } from "../db/index";
+import { channelMessage } from "../db/schema/channel-message";
 import { notification } from "../db/schema/features";
 import type { NotificationEvent } from "../models/realtime-event";
 import { publishUserEvent } from "./event.service";
@@ -76,6 +77,21 @@ export async function markMessageNotificationsRead(userId: string, messageIds: s
             eq(notification.userId, userId),
             isNull(notification.readAt),
             inArray(notification.messageId, messageIds),
+        ));
+}
+
+/** Marks channel notifications through the message a member has read. */
+export async function markChannelNotificationsRead(userId: string, channelId: string, through: Date) {
+    const readMessages = db.select({ id: channelMessage.id }).from(channelMessage).where(and(
+        eq(channelMessage.channelId, channelId),
+        lte(channelMessage.createdAt, through),
+    ));
+    await db.update(notification).set({ readAt: new Date() })
+        .where(and(
+            eq(notification.userId, userId),
+            eq(notification.channelId, channelId),
+            isNull(notification.readAt),
+            inArray(notification.messageId, readMessages),
         ));
 }
 

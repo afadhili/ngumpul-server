@@ -95,6 +95,7 @@ export const account = object(
 
 export const contactFields = {
     userId: id,
+    name: nullable(string),
     username: nullable(string),
     displayName: nullable(string),
     avatar: nullable(uri),
@@ -111,6 +112,7 @@ export const friendRequest = object({
 export const pendingFriendRequest = object({
     id,
     userId: id,
+    name: nullable(string),
     username: nullable(string),
     displayName: nullable(string),
     createdAt: dateTime,

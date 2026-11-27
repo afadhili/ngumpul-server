@@ -8,6 +8,7 @@ import { getChannelAccess } from "../lib/channel-access";
 import { getSessionUserId } from "../lib/request-auth";
 import type { ReadStateEvent } from "../models/realtime-event";
 import { publishUserEvent } from "../services/event.service";
+import { markChannelNotificationsRead } from "../services/notification.service";
 import { getServerMemberIds } from "../services/server-event.service";
 
 export async function getChannelReadState(c: Context) {
@@ -84,6 +85,8 @@ export async function updateChannelReadState(c: Context) {
             markedUnread,
         },
     }).returning();
+
+    if (messageId) await markChannelNotificationsRead(userId, channelId, lastReadAt);
 
     const event: ReadStateEvent = {
         type: "read_state",
