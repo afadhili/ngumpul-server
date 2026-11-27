@@ -4,7 +4,7 @@ import { expo } from "@better-auth/expo";
 import { dash } from "@better-auth/infra";
 import type { Auth } from "better-auth";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
-import { bearer, emailOTP, oauthPopup, openAPI } from "better-auth/plugins";
+import { bearer, emailOTP, openAPI } from "better-auth/plugins";
 import "dotenv/config";
 import { db } from "../db/index";
 import * as schema from "../db/schema/auth";
@@ -110,7 +110,6 @@ const authOptions: Omit<BetterAuthOptions, "user" | "plugins"> & {
             sendVerificationOTP: async ({ email, otp, type }) => sendVerificationOtpEmail(email, otp, type),
         }),
         bearer(),
-        oauthPopup(),
         expo(),
         electron(),
         ...(dashboardApiKey ? [dash({ apiKey: dashboardApiKey })] : []),

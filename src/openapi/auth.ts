@@ -19,7 +19,6 @@ const publicPaths = new Set([
     "/reset-password/{token}",
     "/reset-password",
     "/error",
-    "/oauth-popup/start",
     "/sign-in/social",
     "/callback/{id}",
     "/expo-authorization-proxy",
@@ -61,29 +60,11 @@ export async function getAuthDocumentation(): Promise<{ paths: OpenAPIV3_1.Paths
                       : sessionSecurity,
             } as NonNullable<OpenAPIV3_1.PathItemObject[typeof method]>;
 
-            if (path === "/oauth-popup/start") {
-                documented.summary = "Mulai login Google di popup";
-                documented.description =
-                    "Buka URL ini sebagai navigasi popup. Google OAuth memerlukan konfigurasi provider.";
-                documented.parameters = [
-                    { in: "query", name: "provider", required: true, schema: { type: "string", enum: ["google"] } },
-                    { in: "query", name: "popupOrigin", required: true, schema: uri },
-                    { in: "query", name: "popupNonce", schema: string },
-                    { in: "query", name: "callbackURL", schema: uri },
-                    { in: "query", name: "errorCallbackURL", schema: uri },
-                ];
-                documented.responses = {
-                    ...documented.responses,
-                    200: popupCompletion,
-                    302: redirectResponse("Alihkan popup ke Google."),
-                };
-            }
             if (path === "/callback/{id}") {
                 documented.summary = "Tangani callback dari provider OAuth";
                 documented.responses = {
                     ...documented.responses,
                     302: redirectResponse("Alihkan ke URL callback atau halaman error."),
-                    ...(method === "get" ? { 200: popupCompletion } : {}),
                 };
                 if (method === "post" && documented.requestBody && !("$ref" in documented.requestBody)) {
                     const json = documented.requestBody.content["application/json"];
@@ -119,11 +100,6 @@ export async function getAuthDocumentation(): Promise<{ paths: OpenAPIV3_1.Paths
     // Better Auth types model fields as database fields even after converting them to OpenAPI schemas.
     return { paths, schemas: components.schemas as AuthSchemas };
 }
-
-const popupCompletion = {
-    description: "Halaman HTML yang mengirim hasil autentikasi ke jendela pembuka.",
-    content: { "text/html": { schema: string } },
-};
 
 // Better Auth still emits OpenAPI 3.0 nullable fields in some endpoint metadata.
 function normalizeNullable(value: unknown): void {

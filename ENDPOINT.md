@@ -274,29 +274,24 @@ Google aktif bila `GOOGLE_CLIENT_ID` dan `GOOGLE_CLIENT_SECRET` disetel. Daftark
 
 | Endpoint | Sesi | Contoh penggunaan | Respons dan catatan |
 | --- | --- | --- | --- |
-| `GET /oauth-popup/start` | Tidak | Buka popup dengan `provider=google`, `popupOrigin=<origin-frontend>`, `popupNonce=<nonce-acak>`, dan opsional `callbackURL` serta `errorCallbackURL`. | Mengalihkan ke Google. Halaman selesai di origin API mengirim hasil dengan `postMessage`. |
 | `GET /google/start` | Tidak | Navigasikan halaman ke `?callbackURL=<url-frontend>&errorCallbackURL=<url-frontend>`. | `302` ke Google. Callback harus berada pada origin yang dipercaya. Hasil mengandalkan cookie sesi. |
 | `POST /sign-in/social` | Tidak | Klien same-origin dapat mengirim `{"provider":"google","callbackURL":"http://localhost:5173/dashboard","disableRedirect":true}`. | Mengembalikan `{url,redirect}`; arahkan klien ke `url`. |
-| `GET /callback/:id` | Tidak | Google mengarahkan browser ke `/callback/google?code=...&state=...`. | Menukar kode, membuat sesi, lalu mengalihkan browser atau menyelesaikan popup. |
+| `GET /callback/:id` | Tidak | Google mengarahkan browser ke `/callback/google?code=...&state=...`. | Menukar kode, menyetel cookie sesi, lalu mengalihkan browser ke URL callback. |
 | `POST /callback/:id` | Tidak | Callback provider yang mengirim `code` dan `state` melalui POST. Gunakan ID provider yang dikonfigurasi. | Ditangani Better Auth. Klien aplikasi memulai login dari route start. |
 | `GET /error` | Tidak | URL tujuan kegagalan auth. Contoh `?error=access_denied`. | Halaman error pada development atau redirect pada produksi. |
 
-Contoh membentuk URL popup dari frontend:
+Frontend dapat memulai login Google dengan navigasi halaman:
 
 ```js
-const url = new URL("/api/auth/oauth-popup/start", apiUrl);
-const nonce = crypto.randomUUID();
+const url = new URL("/api/auth/google/start", apiUrl);
 url.search = new URLSearchParams({
-  provider: "google",
-  popupOrigin: window.location.origin,
-  popupNonce: nonce,
   callbackURL: new URL("/dashboard", window.location.origin).href,
   errorCallbackURL: new URL("/login", window.location.origin).href,
 }).toString();
-const popup = window.open(url, "ngumpul-google", "popup,width=500,height=650");
+window.location.assign(url);
 ```
 
-Saat menerima `postMessage`, cocokkan `event.origin` dengan origin API, `event.source` dengan popup, dan `data.nonce` dengan nonce awal. `data.type` harus `better-auth:oauth-popup`. Pada sukses, gunakan `data.token` sebagai bearer sesi. Pada gagal, baca `data.error`. Bersihkan listener setelah proses selesai.
+Setelah redirect, panggil `GET /api/auth/get-session` dengan `credentials: "include"` untuk membaca sesi dari cookie.
 
 ### Sesi dan akun tertaut
 

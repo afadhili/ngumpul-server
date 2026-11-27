@@ -37,15 +37,6 @@ app.use(
     }),
 );
 
-app.use("/api/auth/oauth-popup/*", async (c, next) => {
-    await next();
-    c.header("Cross-Origin-Opener-Policy", "unsafe-none");
-});
-app.use("/api/auth/callback/*", async (c, next) => {
-    await next();
-    c.header("Cross-Origin-Opener-Policy", "unsafe-none");
-});
-
 app.use("/api/auth/google/start", async (c, next) => {
     await next();
     console.log(`[oauth] google/start status=${c.res.status}`);
