@@ -83,7 +83,7 @@ export async function completeAttachmentUpload(c: Context) {
         .where(and(eq(attachment.id, attachmentId), eq(attachment.uploaderId, userId)))
         .limit(1);
     if (!item) return c.json({ error: "Attachment not found" }, 404);
-    if (item.status === "ready") return c.json({ attachment: toPublicAttachment(c, item) });
+    if (item.status === "ready") return c.json({ attachment: toPublicAttachment(c, item) }, 200);
 
     if (item.uploadExpiresAt.getTime() <= Date.now()) {
         await deleteObject(item.uploadKey).catch(() => undefined);
@@ -116,11 +116,11 @@ export async function completeAttachmentUpload(c: Context) {
             .set({ status: "ready", uploadedAt: new Date() })
             .where(and(eq(attachment.id, item.id), eq(attachment.uploaderId, userId), eq(attachment.status, "pending")))
             .returning();
-        if (ready) return c.json({ attachment: toPublicAttachment(c, ready) });
+        if (ready) return c.json({ attachment: toPublicAttachment(c, ready) }, 200);
 
         const [current] = await db.select().from(attachment).where(eq(attachment.id, item.id)).limit(1);
         return current?.status === "ready"
-            ? c.json({ attachment: toPublicAttachment(c, current) })
+            ? c.json({ attachment: toPublicAttachment(c, current) }, 200)
             : c.json({ error: "Unable to finalize upload" }, 409);
     } catch (error) {
         console.error("Unable to finalize attachment upload:", error);
@@ -150,7 +150,7 @@ export async function listConversationAttachments(c: Context) {
         .where(and(eq(attachment.targetType, targetType), eq(attachment.status, "ready"), scope))
         .orderBy(attachment.createdAt)
         .limit(100);
-    return c.json({ attachments: items.map(item => toPublicAttachment(c, item)) });
+    return c.json({ attachments: items.map(item => toPublicAttachment(c, item)) }, 200);
 }
 
 export async function getAttachmentDownloadUrl(c: Context) {
@@ -170,7 +170,7 @@ export async function getAttachmentDownloadUrl(c: Context) {
 
     try {
         const url = await createAttachmentDownloadUrl(item.storageKey, item.mimeType, item.fileName);
-        return c.json({ url, expiresInSeconds: 300 });
+        return c.json({ url, expiresInSeconds: 300 }, 200);
     } catch (error) {
         console.error("Unable to sign attachment download:", error);
         return c.json({ error: "Object storage is unavailable" }, 503);

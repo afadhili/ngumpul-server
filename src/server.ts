@@ -3,7 +3,6 @@ import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { pool } from "./db/index";
 import { app } from "./app";
-import { stopGraphqlServer } from "./routes/graphql.routes";
 import { attachWebSocket } from "./controllers/websocket.controller";
 import { closeEventService, connectEventService } from "./services/event.service";
 import { closeRealtimeService, connectRealtimeService } from "./services/realtime.service";
@@ -55,7 +54,7 @@ async function shutdown() {
     closeRealtimeService();
     closeEventService();
     closeObjectStorage();
-    const closed = await Promise.allSettled([stopGraphqlServer(), pool.end()]);
+    const closed = await Promise.allSettled([pool.end()]);
     clearTimeout(deadline);
 
     for (const result of [...drained, ...closed]) {

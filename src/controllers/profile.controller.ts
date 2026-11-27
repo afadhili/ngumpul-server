@@ -41,7 +41,7 @@ export async function getProfile(c: Context) {
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(eq(user.id, userId))
         .limit(1);
-    return result ? c.json({ profile: result }) : c.json({ error: "User not found" }, 404);
+    return result ? c.json({ profile: result }, 200) : c.json({ error: "User not found" }, 404);
 }
 
 export async function checkUsernameAvailability(c: Context) {
@@ -56,7 +56,7 @@ export async function checkUsernameAvailability(c: Context) {
         .limit(1);
 
     c.header("Cache-Control", "no-store");
-    return c.json({ username, available: !match || match.id === userId });
+    return c.json({ username, available: !match || match.id === userId }, 200);
 }
 
 export async function updateProfile(c: Context) {
@@ -118,7 +118,7 @@ export async function updateProfile(c: Context) {
                 .returning();
             return updatedProfile;
         });
-        return c.json({ profile: { ...saved, username } });
+        return c.json({ profile: { ...saved, username } }, 200);
     } catch (error) {
         if (isUniqueViolation(error)) return c.json({ error: "Username is already in use" }, 409);
         throw error;
@@ -143,7 +143,7 @@ export async function searchUsers(c: Context) {
         .limit(20);
 
     const candidates = matches.filter(match => match.userId !== userId && match.username !== null);
-    if (candidates.length === 0) return c.json({ users: [] });
+    if (candidates.length === 0) return c.json({ users: [] }, 200);
     const candidateIds = new Set(candidates.map(match => match.userId));
     const [blocks, friends] = await Promise.all([
         db.select({ blockerId: userBlock.blockerId, blockedId: userBlock.blockedId }).from(userBlock)
@@ -161,7 +161,7 @@ export async function searchUsers(c: Context) {
             ? match.avatar
             : null,
     }));
-    return c.json({ users: visible });
+    return c.json({ users: visible }, 200);
 }
 
 function isHttpUrl(value: string) {

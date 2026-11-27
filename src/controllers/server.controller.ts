@@ -35,7 +35,7 @@ export async function listServers(c: Context) {
         .innerJoin(communityServer, eq(communityServer.id, serverMember.serverId))
         .where(eq(serverMember.userId, userId))
         .orderBy(desc(serverMember.joinedAt));
-    return c.json({ servers });
+    return c.json({ servers }, 200);
 }
 
 export async function createServer(c: Context) {
@@ -166,7 +166,7 @@ export async function listServerChannels(c: Context) {
         .from(serverChannel)
         .where(eq(serverChannel.serverId, serverId))
         .orderBy(serverChannel.position, serverChannel.createdAt);
-    return c.json({ channels });
+    return c.json({ channels }, 200);
 }
 
 export async function createServerChannel(c: Context) {
@@ -236,7 +236,7 @@ export async function getVoiceChannelToken(c: Context) {
         token: await accessToken.toJwt(),
         room,
         expiresInSeconds: 3600,
-    });
+    }, 200);
 }
 
 export async function updateServer(c: Context) {
@@ -273,7 +273,7 @@ export async function updateServer(c: Context) {
     const [server] = await db.update(communityServer).set(patch)
         .where(eq(communityServer.id, serverId)).returning();
     if (server) await publishServerEvent(serverId, userId, "server.updated", { server: toServerSummary(server) });
-    return server ? c.json({ server }) : c.json({ error: "Server not found" }, 404);
+    return server ? c.json({ server }, 200) : c.json({ error: "Server not found" }, 404);
 }
 
 export async function deleteServer(c: Context) {
@@ -338,7 +338,7 @@ export async function updateServerChannel(c: Context) {
             .where(and(eq(serverChannel.id, channelId), eq(serverChannel.serverId, serverId)))
             .returning();
         if (updated) await publishServerEvent(serverId, userId, "server.channel_updated", { channel: toChannelSummary(updated) });
-        return updated ? c.json({ channel: updated }) : c.json({ error: "Channel not found" }, 404);
+        return updated ? c.json({ channel: updated }, 200) : c.json({ error: "Channel not found" }, 404);
     } catch (error) {
         if (isUniqueViolation(error)) return c.json({ error: "A channel with that name already exists" }, 409);
         throw error;
@@ -385,7 +385,7 @@ export async function listServerMembers(c: Context) {
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(eq(serverMember.serverId, serverId))
         .orderBy(serverMember.joinedAt);
-    return c.json({ members });
+    return c.json({ members }, 200);
 }
 
 export async function addServerMember(c: Context) {
@@ -465,7 +465,7 @@ export async function updateServerMember(c: Context) {
     await publishServerEvent(serverId, userId, "server.member_updated", {
         member: { userId: targetUserId, role: newRole, joinedAt: member?.joinedAt.toISOString() },
     });
-    return c.json({ member });
+    return c.json({ member }, 200);
 }
 
 export async function removeServerMember(c: Context) {

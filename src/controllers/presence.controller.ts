@@ -18,7 +18,7 @@ export async function getUserPresence(c: Context) {
     if (!await canViewPresence(viewerId, targetUserId)) {
         return c.json({ error: "Presence is not visible for this user" }, 403);
     }
-    return c.json({ presence: toPublicPresence(await getPresence(targetUserId), targetUserId) });
+    return c.json({ presence: toPublicPresence(await getPresence(targetUserId), targetUserId) }, 200);
 }
 
 export async function listFriendPresence(c: Context) {
@@ -28,7 +28,7 @@ export async function listFriendPresence(c: Context) {
     const presence = await getPresenceMap(friendIds);
     return c.json({
         presences: friendIds.map(id => toPublicPresence(presence.get(id) ?? null, id)),
-    });
+    }, 200);
 }
 
 export async function updateMyPresence(c: Context) {
@@ -48,5 +48,5 @@ export async function updateMyPresence(c: Context) {
     }
     const row = await setPresenceStatus(userId, status);
     await broadcastPresence(userId);
-    return c.json({ presence: toPublicPresence(row, userId) });
+    return c.json({ presence: toPublicPresence(row, userId) }, 200);
 }

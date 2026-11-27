@@ -47,7 +47,7 @@ export async function addDirectMessageReaction(c: Context) {
         }).onConflictDoNothing().returning({ id: directMessageReaction.id });
         if (inserted.length > 0) await emitDirectReaction("added", target.message, userId, emoji);
     }
-    return c.json({ messageId: target.message.id, reactions: await directReactions(target.message.id, userId) });
+    return c.json({ messageId: target.message.id, reactions: await directReactions(target.message.id, userId) }, 200);
 }
 
 export async function removeDirectMessageReaction(c: Context) {
@@ -66,7 +66,7 @@ export async function removeDirectMessageReaction(c: Context) {
     if (removed.length > 0) {
         await emitDirectReaction("removed", target.message, userId, emoji);
     }
-    return c.json({ messageId: target.message.id, reactions: await directReactions(target.message.id, userId) });
+    return c.json({ messageId: target.message.id, reactions: await directReactions(target.message.id, userId) }, 200);
 }
 
 export async function addChannelMessageReaction(c: Context) {
@@ -93,7 +93,7 @@ export async function addChannelMessageReaction(c: Context) {
         }).onConflictDoNothing().returning({ id: channelMessageReaction.id });
         if (inserted.length > 0) await emitChannelReaction("added", target.serverId, target.message, userId, emoji);
     }
-    return c.json({ messageId: target.message.id, reactions: await channelReactions(target.message.id, userId) });
+    return c.json({ messageId: target.message.id, reactions: await channelReactions(target.message.id, userId) }, 200);
 }
 
 export async function removeChannelMessageReaction(c: Context) {
@@ -112,7 +112,7 @@ export async function removeChannelMessageReaction(c: Context) {
     if (removed.length > 0) {
         await emitChannelReaction("removed", target.serverId, target.message, userId, emoji);
     }
-    return c.json({ messageId: target.message.id, reactions: await channelReactions(target.message.id, userId) });
+    return c.json({ messageId: target.message.id, reactions: await channelReactions(target.message.id, userId) }, 200);
 }
 
 async function directTarget(userId: string, messageId: string) {

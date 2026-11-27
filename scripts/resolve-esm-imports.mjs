@@ -13,7 +13,7 @@ async function visit(directory) {
       continue;
     }
 
-    if (!entry.endsWith(".js")) continue;
+    if (!entry.endsWith(".js") && !entry.endsWith(".d.ts")) continue;
 
     const source = await readFile(path, "utf8");
     const updated = await replaceExtensionlessImports(source, path);

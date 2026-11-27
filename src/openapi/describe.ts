@@ -1,4 +1,7 @@
+import type { Context, Env, Handler, MiddlewareHandler } from "hono";
+import type { HandlerResponse } from "hono/types";
 import { describeRoute, type ResponsesWithResolver } from "hono-openapi";
+import type { FromSchema, JSONSchema } from "json-schema-to-ts";
 import type { OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
 
 export type Schema = OpenAPIV3_1.SchemaObject | OpenAPIV3_1.ReferenceObject;
@@ -18,29 +21,42 @@ export function integer(minimum?: number, maximum?: number) {
     return { type: "integer" as const, minimum, maximum };
 }
 
-export function choice(...values: string[]) {
+export function choice<const Values extends string[]>(...values: Values) {
     return { ...string, enum: values };
 }
 
+export function object<Properties extends Record<string, Schema>>(properties: Properties): {
+    type: "object";
+    properties: Properties;
+    required: (keyof Properties & string)[];
+};
+export function object<Properties extends Record<string, Schema>, const Required extends string[]>(
+    properties: Properties,
+    required: Required,
+): { type: "object"; properties: Properties } & (Required extends [] ? {} : { required: Required });
 export function object(properties: Record<string, Schema>, required = Object.keys(properties)): Schema {
     return { type: "object", properties, ...(required.length > 0 ? { required } : {}) };
 }
 
-export function array(items: Schema): Schema {
-    return { type: "array", items };
+export function array<const Items extends Schema>(items: Items) {
+    return { type: "array" as const, items };
 }
 
-export function nullable(schema: Schema): Schema {
-    return { anyOf: [schema, { type: "null" }] };
+export function anyOf<const Variants extends Schema[]>(...variants: Variants) {
+    return { anyOf: variants };
 }
 
-export function query(
-    name: string,
-    schema: NonNullable<OpenAPIV3.ParameterObject["schema"]>,
-    required = false,
+export function nullable<const Value extends Schema>(schema: Value) {
+    return anyOf(schema, { type: "null" });
+}
+
+export function query<Name extends string, const Value extends Schema, Required extends boolean = false>(
+    name: Name,
+    schema: Value,
+    required: Required = false as Required,
     description?: string,
-): OpenAPIV3.ParameterObject {
-    return { in: "query", name, schema, required, description };
+) {
+    return { in: "query" as const, name, schema, required, description };
 }
 
 export function jsonResponse(description: string, schema: Schema): ResponsesWithResolver[string] {
@@ -76,16 +92,51 @@ type RouteDetails = {
     responses?: ResponsesWithResolver;
 };
 
-export function rest(tag: string, summary: string, schema?: Schema, details: RouteDetails = {}) {
-    const status = details.status ?? 200;
+type QueryParameter = ReturnType<typeof query<string, Schema, boolean>>;
+type QueryParameters<Details> = Details extends { parameters: (infer Parameter)[] }
+    ? Extract<Parameter, QueryParameter>
+    : never;
+
+type QueryValue<Value> = Value extends { enum: (infer Choice extends string)[] } ? Choice
+    : Value extends { type: "boolean" } ? "true" | "false"
+    : string;
+
+type RequiredQuery<Parameter> = Extract<Parameter, { required: true }>;
+type QueryFields<Parameter extends QueryParameter> = {
+    [Field in RequiredQuery<Parameter> as Field["name"]]: QueryValue<Field["schema"]>;
+} & {
+    [Field in Exclude<Parameter, RequiredQuery<Parameter>> as Field["name"]]?: QueryValue<Field["schema"]>;
+};
+
+type RequestQuery<Parameter extends QueryParameter> = [Parameter] extends [never] ? {}
+    : [RequiredQuery<Parameter>] extends [never] ? { query?: QueryFields<Parameter> }
+    : { query: QueryFields<Parameter> };
+
+type RequestBody<Details> = Details extends { body: infer Body extends JSONSchema }
+    ? Details extends { optionalBody: true }
+        ? { json?: FromSchema<Body, { keepDefaultedPropertiesOptional: true }> }
+        : { json: FromSchema<Body, { keepDefaultedPropertiesOptional: true }> }
+    : {};
+
+type RequestInput<Details> = { in: RequestQuery<QueryParameters<Details>> & RequestBody<Details> };
+
+export function rest<Result extends HandlerResponse<unknown>, const Details extends RouteDetails = {}>(
+    handler: (c: Context) => Result,
+    tag: string,
+    summary: string,
+    schema?: Schema,
+    details?: Details,
+): [MiddlewareHandler, Handler<Env, string, RequestInput<Details>, Result>] {
+    const options: RouteDetails = details ?? {};
+    const status = options.status ?? 200;
     const responses: ResponsesWithResolver = schema
         ? { [status]: jsonResponse(status === 201 ? "Data berhasil dibuat." : "Permintaan berhasil.", schema) }
         : {};
     if (status === 204) responses[204] = { description: "Permintaan berhasil tanpa body respons." };
 
-    const errorStatuses = new Set(details.errors);
-    if (!details.public) errorStatuses.add(401);
-    if (details.body) {
+    const errorStatuses = new Set(options.errors);
+    if (!options.public) errorStatuses.add(401);
+    if (options.body) {
         errorStatuses.add(400);
         errorStatuses.add(413);
     }
@@ -93,16 +144,18 @@ export function rest(tag: string, summary: string, schema?: Schema, details: Rou
         responses[code] = jsonResponse(errors[code], object({ error: string }));
     }
 
-    return describeRoute({
+    // The request schema types RPC input. Controllers validate raw requests after their access checks.
+    const documentation = describeRoute({
         tags: [tag],
         summary,
-        description: details.description,
-        security: details.public ? [] : sessionSecurity,
-        parameters: details.parameters,
-        requestBody: details.body && {
-            required: !details.optionalBody,
-            content: { "application/json": { schema: details.body } },
+        description: options.description,
+        security: options.public ? [] : sessionSecurity,
+        parameters: options.parameters,
+        requestBody: options.body && {
+            required: !options.optionalBody,
+            content: { "application/json": { schema: options.body } },
         },
-        responses: { ...responses, ...details.responses },
+        responses: { ...responses, ...options.responses },
     });
+    return [documentation, handler];
 }

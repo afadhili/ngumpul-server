@@ -52,7 +52,7 @@ export async function listConversations(c: Context) {
     const rows = await db.select().from(conversationPreference)
         .where(and(...conditions))
         .orderBy(conversationPreference.sortOrder, conversationPreference.updatedAt);
-    return c.json({ conversations: rows.map(toPublicPreference) });
+    return c.json({ conversations: rows.map(toPublicPreference) }, 200);
 }
 
 export async function getConversationPreferenceHandler(c: Context) {
@@ -82,9 +82,9 @@ export async function getConversationPreferenceHandler(c: Context) {
                 sortOrder: 0,
                 updatedAt: null,
             },
-        });
+        }, 200);
     }
-    return c.json({ preference: toPublicPreference(row) });
+    return c.json({ preference: toPublicPreference(row) }, 200);
 }
 
 export async function updateConversationPreference(c: Context) {
@@ -176,5 +176,5 @@ export async function updateConversationPreference(c: Context) {
         target: [conversationPreference.userId, conversationPreference.scope, conversationPreference.targetId],
         set: { ...patch, updatedAt: new Date() },
     }).returning();
-    return c.json({ preference: row ? toPublicPreference(row) : null });
+    return c.json({ preference: row ? toPublicPreference(row) : null }, 200);
 }

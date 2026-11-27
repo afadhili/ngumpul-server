@@ -83,7 +83,7 @@ export async function searchDirectMessages(c: Context) {
             eq(friendship.friendUserId, userId),
         ));
         const peerIds = friendRows.map(row => row.userId === userId ? row.friendUserId : row.userId);
-        if (peerIds.length === 0) return c.json({ messages: [], nextCursor: null });
+        if (peerIds.length === 0) return c.json({ messages: [], nextCursor: null }, 200);
         conditions.push(or(
             and(eq(directMessage.senderId, userId), inArray(directMessage.recipientId, peerIds)),
             and(eq(directMessage.recipientId, userId), inArray(directMessage.senderId, peerIds)),
@@ -118,7 +118,7 @@ export async function searchDirectMessages(c: Context) {
             };
         }),
         nextCursor: rows.length === query.limit ? rows[rows.length - 1]?.id ?? null : null,
-    });
+    }, 200);
 }
 
 export async function searchChannelMessages(c: Context) {
@@ -141,7 +141,7 @@ export async function searchChannelMessages(c: Context) {
         const rows = await db.select({ serverId: serverMember.serverId }).from(serverMember)
             .where(eq(serverMember.userId, userId));
         serverIds = rows.map(row => row.serverId);
-        if (serverIds.length === 0) return c.json({ messages: [], nextCursor: null });
+        if (serverIds.length === 0) return c.json({ messages: [], nextCursor: null }, 200);
     }
 
     const channels = await db.select({ id: serverChannel.id, name: serverChannel.name, serverId: serverChannel.serverId })
@@ -153,7 +153,7 @@ export async function searchChannelMessages(c: Context) {
         ));
     if (channelId && channels.length === 0) return c.json({ error: "Channel not found or access denied" }, 404);
     const channelIds = channels.map(channel => channel.id);
-    if (channelIds.length === 0) return c.json({ messages: [], nextCursor: null });
+    if (channelIds.length === 0) return c.json({ messages: [], nextCursor: null }, 200);
     const channelNames = new Map(channels.map(channel => [channel.id, channel.name]));
     const channelServers = new Map(channels.map(channel => [channel.id, channel.serverId]));
 
@@ -187,5 +187,5 @@ export async function searchChannelMessages(c: Context) {
             };
         }),
         nextCursor: rows.length === query.limit ? rows[rows.length - 1]?.id ?? null : null,
-    });
+    }, 200);
 }

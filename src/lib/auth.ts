@@ -40,7 +40,12 @@ if (Boolean(googleClientId) !== Boolean(googleClientSecret)) {
     throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be set to enable Google sign-in");
 }
 
-const authOptions: BetterAuthOptions & {
+const userFields = {
+    username: { type: "string", required: false, input: false },
+} as const;
+
+const authOptions: Omit<BetterAuthOptions, "user" | "plugins"> & {
+    user: { additionalFields: typeof userFields };
     plugins: [ReturnType<typeof openAPI>, ...NonNullable<BetterAuthOptions["plugins"]>];
 } = {
     secret,
@@ -61,15 +66,7 @@ const authOptions: BetterAuthOptions & {
         provider: "pg",
         schema,
     }),
-    user: {
-        additionalFields: {
-            username: {
-                type: "string",
-                required: false,
-                input: false,
-            },
-        },
-    },
+    user: { additionalFields: userFields },
     ...(googleClientId && googleClientSecret
         ? {
               socialProviders: {

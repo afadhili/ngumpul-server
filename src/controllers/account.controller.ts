@@ -23,7 +23,7 @@ export async function listBlockedUsers(c: Context) {
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(eq(userBlock.blockerId, userId))
         .orderBy(userBlock.createdAt);
-    return c.json({ blocked });
+    return c.json({ blocked }, 200);
 }
 
 export async function blockUser(c: Context) {
@@ -123,7 +123,7 @@ export async function updatePrivacySettings(c: Context) {
         onlineStatusVisibility: profile.onlineStatusVisibility,
         lastSeenVisibility: profile.lastSeenVisibility,
     }).from(profile).where(eq(profile.userId, userId)).limit(1);
-    return c.json({ privacy: settings });
+    return c.json({ privacy: settings }, 200);
 }
 
 export async function getPrivacySettings(c: Context) {
@@ -138,7 +138,7 @@ export async function getPrivacySettings(c: Context) {
         photoVisibility: "friends",
         onlineStatusVisibility: "friends",
         lastSeenVisibility: "friends",
-    } });
+    } }, 200);
 }
 
 function isUniqueViolation(error: unknown) {

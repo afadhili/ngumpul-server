@@ -27,7 +27,7 @@ export async function listDirectPins(c: Context) {
         eq(messagePin.targetId, targetId),
     ));
     const ids = pins.map(pin => pin.messageId);
-    if (ids.length === 0) return c.json({ messages: [] });
+    if (ids.length === 0) return c.json({ messages: [] }, 200);
     const rows = await db.select().from(directMessage).where(and(
         inArray(directMessage.id, ids),
         isNull(directMessage.deletedAt),
@@ -36,7 +36,7 @@ export async function listDirectPins(c: Context) {
     const byId = new Map(rows.map(row => [row.id, toPublicDirectMessage(row, metaFor(meta, row.id))]));
     return c.json({
         messages: pins.map(pin => byId.get(pin.messageId)).filter(Boolean),
-    });
+    }, 200);
 }
 
 export async function pinDirectMessage(c: Context) {
@@ -120,7 +120,7 @@ export async function listChannelPins(c: Context) {
         eq(messagePin.targetId, channelId),
     ));
     const ids = pins.map(pin => pin.messageId);
-    if (ids.length === 0) return c.json({ messages: [] });
+    if (ids.length === 0) return c.json({ messages: [] }, 200);
     const rows = await db.select().from(channelMessage).where(and(
         inArray(channelMessage.id, ids),
         eq(channelMessage.channelId, channelId),
@@ -128,7 +128,7 @@ export async function listChannelPins(c: Context) {
     ));
     const meta = await loadChannelMessageMeta(rows, userId);
     const byId = new Map(rows.map(row => [row.id, toPublicChannelMessage(row, metaFor(meta, row.id))]));
-    return c.json({ messages: pins.map(pin => byId.get(pin.messageId)).filter(Boolean) });
+    return c.json({ messages: pins.map(pin => byId.get(pin.messageId)).filter(Boolean) }, 200);
 }
 
 export async function pinChannelMessage(c: Context) {

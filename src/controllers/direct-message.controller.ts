@@ -83,7 +83,7 @@ export async function listDirectMessages(c: Context) {
         ...toPublicMessage(row, metaFor(metaMap, row.id)),
         replyTo: row.replyToMessageId ? (replyById.get(row.replyToMessageId) ?? null) : null,
     }));
-    return c.json({ messages, nextCursor });
+    return c.json({ messages, nextCursor }, 200);
 }
 
 export async function sendDirectMessage(c: Context) {
@@ -130,7 +130,7 @@ export async function editDirectMessage(c: Context) {
     if (!updated) return c.json({ error: "Message not found" }, 404);
     const message = toPublicMessage(updated, metaFor(await loadDirectMessageMeta([updated], userId), updated.id));
     await emitDirectMessage("updated", message);
-    return c.json({ message });
+    return c.json({ message }, 200);
 }
 
 export async function deleteDirectMessage(c: Context) {
@@ -251,7 +251,7 @@ export async function markDirectMessageReceipt(c: Context) {
         metaFor(await loadDirectMessageMeta([markerRecord], userId), markerRecord.id),
     );
     await emitDirectMessage("receipt", record);
-    return c.json({ status: record.status, upToMessageId: marker.id, updatedCount: updated.length });
+    return c.json({ status: record.status, upToMessageId: marker.id, updatedCount: updated.length }, 200);
 }
 
 export function toPublicMessage(row: typeof directMessage.$inferSelect, meta: MessageMeta): DirectMessageRecord {

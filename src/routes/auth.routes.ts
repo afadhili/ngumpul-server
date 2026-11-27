@@ -37,14 +37,13 @@ function isTrustedRedirect(value: string): boolean {
  */
 authRoutes.get(
     "/google/start",
-    rest("Autentikasi", "Mulai login Google melalui navigasi browser", undefined, {
+    ...rest(startGoogleSignIn, "Autentikasi", "Mulai login Google melalui navigasi browser", undefined, {
         public: true,
         description: "Memerlukan konfigurasi Google OAuth dan URL callback pada origin yang dipercaya.",
         parameters: [query("callbackURL", uri, true), query("errorCallbackURL", uri)],
         responses: { 302: redirectResponse("Alihkan ke Google dan simpan cookie state.") },
         errors: [400, 500, 502],
     }),
-    startGoogleSignIn,
 );
 
 async function startGoogleSignIn(c: Context) {

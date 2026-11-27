@@ -24,7 +24,7 @@ export async function listDrafts(c: Context) {
             replyToMessageId: row.replyToMessageId,
             updatedAt: row.updatedAt.toISOString(),
         })),
-    });
+    }, 200);
 }
 
 export async function saveDraft(c: Context) {
@@ -78,7 +78,7 @@ export async function saveDraft(c: Context) {
             replyToMessageId: row?.replyToMessageId ?? replyToMessageId,
             updatedAt: (row?.updatedAt ?? new Date()).toISOString(),
         },
-    });
+    }, 200);
 }
 
 export async function deleteDraft(c: Context) {

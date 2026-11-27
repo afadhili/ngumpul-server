@@ -8,5 +8,5 @@ export async function getCurrentUser(c: Context) {
         return c.json({ error: "Unauthorized" }, 401);
     }
 
-    return c.json({ user: session.user });
+    return c.json({ user: session.user }, 200);
 }

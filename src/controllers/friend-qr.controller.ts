@@ -65,7 +65,7 @@ export async function createFriendQr(c: Context) {
             deepLink: `ngumpul://friend?code=${encodeURIComponent(code)}`,
             httpUrl: `${baseUrl.replace(/\/$/, "")}/api/friends/qr/${encodeURIComponent(code)}`,
         },
-    });
+    }, 200);
 }
 
 /** Preview who a scanned code belongs to before the requester confirms. */
@@ -96,7 +96,7 @@ export async function previewFriendQr(c: Context) {
             alreadyFriends: Boolean(friends),
             blocked: Boolean(block),
         },
-    });
+    }, 200);
 }
 
 /** Redeems a scanned friend code by creating the usual pending friend request. */

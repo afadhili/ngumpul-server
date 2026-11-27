@@ -1,5 +1,5 @@
 import { attachmentPolicies } from "../models/attachment-policy";
-import { array, boolean, choice, dateTime, integer, nullable, object, query, string, text, uri } from "./describe";
+import { anyOf, array, boolean, choice, dateTime, integer, nullable, object, query, string, text, uri } from "./describe";
 import type { Schema } from "./describe";
 
 export const id = text(1, 128);
@@ -145,25 +145,25 @@ const messageInputFields = {
     encrypted: boolean,
     poll: nullable(pollInput),
 };
-const requiredMessageContent: Schema[] = [
-    { required: ["text"], properties: { text: text(1, 4000) } },
-    { required: ["attachmentId"], properties: { attachmentId: id } },
-    { required: ["location"], properties: { location: object(locationFields, ["lat", "lng"]) } },
-    { required: ["poll"], properties: { poll: pollInput } },
-];
-export const directMessageInput: Schema = {
+const requiredMessageContent = anyOf(
+    object({ text: text(1, 4000) }),
+    object({ attachmentId: id }),
+    object({ location: object(locationFields, ["lat", "lng"]) }),
+    object({ poll: pollInput }),
+);
+export const directMessageInput = {
     ...object(messageInputFields, []),
-    anyOf: requiredMessageContent,
+    ...requiredMessageContent,
     example: { text: "Halo!" },
     description: "Sertakan minimal satu dari text, attachmentId, location, atau poll.",
-};
-export const channelMessageInput: Schema = {
+} satisfies Schema;
+export const channelMessageInput = {
     ...object({ ...messageInputFields, isAnnouncement: boolean }, []),
-    anyOf: requiredMessageContent,
+    ...requiredMessageContent,
     example: { text: "Selamat datang di channel ini!" },
     description:
         "Sertakan minimal satu dari text, attachmentId, location, atau poll. Pengumuman memerlukan peran owner atau admin.",
-};
+} satisfies Schema;
 
 export const editMessageInput = object({ text: text(1, 4000) });
 export const reactionInput = object({ emoji: text(1, 32) });
@@ -263,10 +263,10 @@ export const conversationPreference = object({
     ...preferenceFields,
     updatedAt: nullable(dateTime),
 });
-export const conversationInput: Schema = {
+export const conversationInput = {
     ...object({ ...preferenceFields, muteForSeconds: integer(1, 31_536_000) }, []),
     minProperties: 1,
-};
+} satisfies Schema;
 export const draft = object({
     scope,
     targetId: string,
@@ -287,7 +287,7 @@ export const scheduledMessage = object({
     failureReason: nullable(string),
     createdAt: dateTime,
 });
-export const scheduledInput: Schema = {
+export const scheduledInput = {
     ...object(
         {
             scope,
@@ -299,9 +299,9 @@ export const scheduledInput: Schema = {
         },
         ["scope", "targetId", "scheduledFor"],
     ),
-    anyOf: [{ required: ["text"] }, { required: ["attachmentId"] }],
+    ...anyOf(object({ text: text(1, 4000) }), object({ attachmentId: id })),
     description: "Jadwalkan 5 detik hingga 1 tahun dari sekarang.",
-};
+} satisfies Schema;
 
 export const notification = object({
     id,
@@ -322,7 +322,7 @@ export const presence = object({
     updatedAt: dateTime,
 });
 
-const settings: Schema = { type: "object", properties: { presenceVisibility: visibility }, additionalProperties: true };
+const settings = { type: "object", properties: { presenceVisibility: visibility }, additionalProperties: true } satisfies Schema;
 export const userPreferenceFields = {
     theme: choice("system", "light", "dark"),
     wallpaper: nullable(text(0, 2048)),
@@ -365,10 +365,10 @@ export const backup = object(
     },
     ["version", "exportedAt", "drafts", "directMessages", "channelMessages", "servers"],
 );
-export const backupInput: Schema = {
-    ...object(archiveFields, []),
+export const backupInput = {
+    ...object({ ...archiveFields, backup: nullable(object(archiveFields, [])) }, []),
     description: "Gunakan arsip versi 1 dari GET /api/backup. Server mengimpor pesan pribadi, pesan channel, dan draf.",
-};
+} satisfies Schema;
 
 export const attachmentInputFields = {
     targetType: scope,

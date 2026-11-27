@@ -27,7 +27,7 @@ export async function getChannelReadState(c: Context) {
             lastReadAt: row?.lastReadAt?.toISOString() ?? null,
             markedUnread: row?.markedUnread ?? false,
         },
-    });
+    }, 200);
 }
 
 export async function updateChannelReadState(c: Context) {
@@ -108,7 +108,7 @@ export async function updateChannelReadState(c: Context) {
             lastReadAt: (row?.lastReadAt ?? lastReadAt).toISOString(),
             markedUnread: row?.markedUnread ?? false,
         },
-    });
+    }, 200);
 }
 
 /** Unread counters per channel for a server plus muted/favorite flags. */
@@ -156,5 +156,5 @@ export async function getServerUnreadCounts(c: Context) {
             archived: preferenceMap.get(row.channelId)?.archived ?? false,
             notificationLevel: preferenceMap.get(row.channelId)?.notificationLevel ?? "all",
         })),
-    });
+    }, 200);
 }

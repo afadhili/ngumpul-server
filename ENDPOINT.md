@@ -5,7 +5,6 @@
 | [Mulai cepat](#mulai-cepat) | URL dasar, sesi, dan contoh request |
 | [REST API](#rest-api) | Profil, teman, chat, grup, dan fitur aplikasi |
 | [Autentikasi Better Auth](#autentikasi-better-auth) | Daftar, login, OTP, Google, dan sesi |
-| [GraphQL](#graphql) | Membaca akun dan profil dalam satu request |
 | [WebSocket](#websocket) | Menerima pesan dan perubahan secara real-time |
 | [LiveKit](#livekit) | Panggilan audio, video, dan berbagi layar |
 | [Penyimpanan S3](#penyimpanan-s3) | Mengunggah atau membuka lampiran |
@@ -16,6 +15,8 @@
 Gunakan `http://localhost:3000` saat menjalankan server lokal, atau `https://api.afadhili.my.id` untuk API publik. Endpoint WebSocket memakai `ws://localhost:3000` atau `wss://api.afadhili.my.id`.
 
 Buka [Scalar API Reference](http://localhost:3000/docs) untuk mencoba endpoint HTTP, atau impor [spesifikasi OpenAPI](http://localhost:3000/openapi) ke klien API. Untuk endpoint yang memerlukan login, masukkan token sesi di bagian **Authentication** dengan skema **bearerAuth**, lalu buka **Test Request**.
+
+Gunakan [Hono RPC](README.md#hono-rpc-for-typescript-clients) untuk memanggil route aplikasi dari TypeScript.
 
 Untuk mencoba dari terminal, ambil token dari respons login yang berhasil. Ganti nilai contoh `TOKEN`, `user-b`, dan parameter seperti `:messageId` dengan nilai dari respons API.
 
@@ -48,7 +49,7 @@ Untuk browser, kirim cookie dengan `credentials: "include"` dan atur `CORS_ORIGI
 | `429` | Permintaan auth terlalu sering. Tunggu sebelum mencoba lagi. |
 | `502`, `503` | Layanan pendukung gagal atau belum dikonfigurasi. |
 
-Error REST biasanya berbentuk `{"error":"..."}`. Better Auth memakai `{"message":"...","code":"..."}`. Gunakan kode dan status untuk logika frontend. Server menjawab preflight CORS `OPTIONS` untuk `/api/*` dan `/graphql`.
+Error REST biasanya berbentuk `{"error":"..."}`. Better Auth memakai `{"message":"...","code":"..."}`. Gunakan kode dan status untuk logika frontend. Server menjawab preflight CORS `OPTIONS` untuk `/api/*`.
 
 <a id="5a-backlog-feature-endpoints"></a>
 
@@ -330,35 +331,6 @@ Access token provider berbeda dari token sesi Ngumpul. Untuk request REST Ngumpu
 | `POST /update-session` | Dengan sesi, kirim objek berisi field tambahan sesi yang dikonfigurasi. | Server belum memiliki field sesi tambahan yang dapat diperbarui. |
 | `POST /delete-user` | Dengan sesi baru, kirim `{"password":"ContohSandi123!"}` untuk meminta penghapusan akun. | Penghapusan akun masih nonaktif. |
 | `GET /delete-user/callback` | Buka tautan konfirmasi dengan `?token=token-hapus` dan opsional `callbackURL`. | Penghapusan akun masih nonaktif. |
-
-## GraphQL
-
-`POST /graphql` dan `GET /graphql` memerlukan sesi. Skema saat ini hanya menyediakan dua query baca untuk pemanggil.
-
-| Query | Contoh | Hasil |
-| --- | --- | --- |
-| `me` | `{ me { id name username emailVerified } }` | Akun saat ini. Field lain `email` dan `image`; `username` dapat `null`. |
-| `myProfile` | `{ myProfile { displayName bio avatar isPublic } }` | Profil saat ini atau `null` bila belum dibuat. Field lain `banner`, `location`, `website`, `pronouns`, `photoVisibility`, `onlineStatusVisibility`, dan `lastSeenVisibility`. |
-
-`POST /graphql` menerima body JSON dengan `query` serta opsional `variables` dan `operationName`:
-
-```sh
-curl "$API_URL/graphql" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"{ me { id username } myProfile { displayName } }"}'
-```
-
-`GET /graphql` menerima query di URL. URL-encode parameter `query`:
-
-```sh
-curl -G "$API_URL/graphql" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  --data-urlencode 'query={ me { id username } }'
-```
-
-Respons sukses memuat `data`, misalnya `{"data":{"me":{"id":"user-a","username":"alice"}}}`. Periksa `errors` juga, termasuk pada HTTP `200`. Request tanpa sesi mendapat `401 {"errors":[{"message":"Unauthorized"}]}`. Untuk menyimpan profil, gunakan REST.
 
 ## WebSocket
 

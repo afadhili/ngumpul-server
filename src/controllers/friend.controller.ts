@@ -17,7 +17,7 @@ export async function listFriends(c: Context) {
         .from(friendship)
         .where(or(eq(friendship.userId, userId), eq(friendship.friendUserId, userId)));
     const friendIds = rows.map(row => (row.userId === userId ? row.friendUserId : row.userId));
-    if (friendIds.length === 0) return c.json({ friends: [] });
+    if (friendIds.length === 0) return c.json({ friends: [] }, 200);
 
     const profiles = await db
         .select({ userId: user.id, username: user.username, displayName: profile.displayName, avatar: profile.avatar })
@@ -25,7 +25,7 @@ export async function listFriends(c: Context) {
         .leftJoin(profile, eq(profile.userId, user.id))
         .where(inArray(user.id, friendIds));
     const byId = new Map(profiles.map(item => [item.userId, item]));
-    return c.json({ friends: rows.map(row => byId.get(row.userId === userId ? row.friendUserId : row.userId)).filter(Boolean) });
+    return c.json({ friends: rows.map(row => byId.get(row.userId === userId ? row.friendUserId : row.userId)).filter(Boolean) }, 200);
 }
 
 export async function listFriendRequests(c: Context) {
@@ -47,7 +47,7 @@ export async function listFriendRequests(c: Context) {
             .where(and(eq(friendRequest.requesterId, userId), eq(friendRequest.status, "pending"))),
     ]);
 
-    return c.json({ incoming, outgoing });
+    return c.json({ incoming, outgoing }, 200);
 }
 
 export async function sendFriendRequest(c: Context) {
@@ -129,7 +129,7 @@ export async function acceptFriendRequest(c: Context) {
             await tx.insert(friendship).values({ userId: firstId, friendUserId: secondId }).onConflictDoNothing();
             return request;
         });
-        return accepted ? c.json({ request: accepted }) : c.json({ error: "Pending friend request not found" }, 404);
+        return accepted ? c.json({ request: accepted }, 200) : c.json({ error: "Pending friend request not found" }, 404);
     } catch (error) {
         throw error;
     }
@@ -165,5 +165,5 @@ async function updateFriendRequestStatus(c: Context, status: "declined" | "cance
         ? and(eq(friendRequest.id, requestId), eq(friendRequest.recipientId, userId), eq(friendRequest.status, "pending"))
         : and(eq(friendRequest.id, requestId), eq(friendRequest.requesterId, userId), eq(friendRequest.status, "pending"));
     const [updated] = await db.update(friendRequest).set({ status, updatedAt: new Date() }).where(condition).returning();
-    return updated ? c.json({ request: updated }) : c.json({ error: "Pending friend request not found" }, 404);
+    return updated ? c.json({ request: updated }, 200) : c.json({ error: "Pending friend request not found" }, 404);
 }

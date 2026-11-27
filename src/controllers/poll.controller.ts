@@ -113,7 +113,7 @@ export async function voteOnPoll(c: Context) {
 
     const summary = await summarizePoll(pollId, userId);
     if (summary) await emitPoll(context, "voted", summary, userId);
-    return c.json({ poll: summary });
+    return c.json({ poll: summary }, 200);
 }
 
 export async function retractPollVote(c: Context) {
@@ -126,7 +126,7 @@ export async function retractPollVote(c: Context) {
     await db.delete(messagePollVote).where(and(eq(messagePollVote.pollId, pollId), eq(messagePollVote.userId, userId)));
     const summary = await summarizePoll(pollId, userId);
     if (summary) await emitPoll(context, "voted", summary, userId);
-    return c.json({ poll: summary });
+    return c.json({ poll: summary }, 200);
 }
 
 export async function closePoll(c: Context) {
@@ -142,7 +142,7 @@ export async function closePoll(c: Context) {
     await db.update(messagePoll).set({ closedAt: new Date() }).where(eq(messagePoll.id, pollId));
     const summary = await summarizePoll(pollId, userId);
     if (summary) await emitPoll(context, "closed", summary, userId);
-    return c.json({ poll: summary });
+    return c.json({ poll: summary }, 200);
 }
 
 export async function getPoll(c: Context) {
@@ -151,5 +151,5 @@ export async function getPoll(c: Context) {
     const pollId = c.req.param("pollId") ?? "";
     const context = await resolvePollContext(userId, pollId);
     if (!context) return c.json({ error: "Poll not found or access denied" }, 404);
-    return c.json({ poll: await summarizePoll(pollId, userId) });
+    return c.json({ poll: await summarizePoll(pollId, userId) }, 200);
 }

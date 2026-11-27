@@ -84,7 +84,7 @@ export async function listChannelMessages(c: Context) {
         ...toPublicMessage(row, metaFor(metaMap, row.id)),
         replyTo: row.replyToMessageId ? (replyById.get(row.replyToMessageId) ?? null) : null,
     }));
-    return c.json({ messages, nextCursor });
+    return c.json({ messages, nextCursor }, 200);
 }
 
 export async function sendChannelMessage(c: Context) {
@@ -149,7 +149,7 @@ export async function editChannelMessage(c: Context) {
     if (!updated) return c.json({ error: "Message not found" }, 404);
     const message = toPublicMessage(updated, metaFor(await loadChannelMessageMeta([updated], userId), updated.id));
     await emitChannelMessage("updated", access.serverId, message);
-    return c.json({ message });
+    return c.json({ message }, 200);
 }
 
 export async function deleteChannelMessage(c: Context) {

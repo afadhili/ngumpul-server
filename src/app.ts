@@ -1,17 +1,19 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import type { ApplyGlobalResponse } from "hono/client";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { registerOpenApi } from "./openapi/register";
 import { apiRoutes } from "./routes/api.routes";
 import { authRoutes } from "./routes/auth.routes";
-import { graphqlGetDocs, graphqlPostDocs, handleGraphqlRequest } from "./routes/graphql.routes";
 import { healthRoutes } from "./routes/health.routes";
 import { serverRoutes } from "./routes/server.routes";
 
 const app = new Hono();
 const allowedOrigin = process.env.CORS_ORIGIN;
 const oneMiB = 1024 * 1024;
+const bodyLimitError = { error: "Request body must not exceed 1 MiB" };
+type WithBodyLimit<Routes> = ApplyGlobalResponse<Routes, { 413: { json: typeof bodyLimitError } }>;
 
 app.use("*", secureHeaders({ overwrite: false }));
 
@@ -19,15 +21,7 @@ app.use(
     "/api/*",
     bodyLimit({
         maxSize: oneMiB,
-        onError: c => c.json({ error: "Request body must not exceed 1 MiB" }, 413),
-    }),
-);
-
-app.use(
-    "/graphql",
-    bodyLimit({
-        maxSize: oneMiB,
-        onError: c => c.json({ errors: [{ message: "Request body must not exceed 1 MiB" }] }, 413),
+        onError: c => c.json(bodyLimitError, 413),
     }),
 );
 
@@ -37,18 +31,6 @@ app.use(
         origin: allowedOrigin ? [allowedOrigin] : [],
         allowHeaders: ["Content-Type", "Authorization"],
         allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        exposeHeaders: ["Content-Length"],
-        maxAge: 600,
-        credentials: true,
-    }),
-);
-
-app.use(
-    "/graphql",
-    cors({
-        origin: allowedOrigin ? [allowedOrigin] : [],
-        allowHeaders: ["Content-Type", "Authorization"],
-        allowMethods: ["GET", "POST", "OPTIONS"],
         exposeHeaders: ["Content-Length"],
         maxAge: 600,
         credentials: true,
@@ -75,13 +57,13 @@ app.use("/api/auth/callback/google", async (c, next) => {
     console.log(`[oauth] google/callback state=${state} status=${c.res.status}`);
 });
 
-app.route("/", healthRoutes);
 app.route("/api/auth", authRoutes);
-app.route("/api", apiRoutes);
-app.get("/graphql", graphqlGetDocs);
-app.post("/graphql", graphqlPostDocs);
-app.all("/graphql", handleGraphqlRequest);
-app.route("/api/servers", serverRoutes);
+
+const routes = app
+    .route("/", healthRoutes)
+    .route("/api", apiRoutes as WithBodyLimit<typeof apiRoutes>)
+    .route("/api/servers", serverRoutes as WithBodyLimit<typeof serverRoutes>);
 registerOpenApi(app);
 
+export type AppType = typeof routes;
 export { app };

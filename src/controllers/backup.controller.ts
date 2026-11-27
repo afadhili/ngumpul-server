@@ -104,7 +104,7 @@ export async function exportBackup(c: Context) {
             directMessages: directRows,
             channelMessages: channelRows,
         },
-    });
+    }, 200);
 }
 
 type RestoreResult = {
@@ -235,7 +235,7 @@ export async function restoreBackup(c: Context) {
         result.draftsImported += 1;
     }
 
-    return c.json({ restored: result });
+    return c.json({ restored: result }, 200);
 }
 
 function asStringRecord(value: unknown): Record<string, string | null | undefined> | null {

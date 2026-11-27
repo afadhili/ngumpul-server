@@ -39,7 +39,7 @@ export async function listVoiceParticipants(c: Context) {
     } catch (error) {
         // LiveKit answers with a not-found error (404) when nobody has joined the room yet.
         const message = error instanceof Error ? error.message : String(error);
-        if (/not\s*found|404/i.test(message)) return c.json({ room, participants: [] });
+        if (/not\s*found|404/i.test(message)) return c.json({ room, participants: [] }, 200);
         console.error("Unable to list LiveKit participants:", error);
         return c.json({ error: "Voice service is unavailable" }, 502);
     }
@@ -68,7 +68,7 @@ export async function listVoiceParticipants(c: Context) {
                 metadata: participant.metadata || null,
             };
         }),
-    });
+    }, 200);
 }
 
 /**
@@ -136,5 +136,5 @@ export async function updateVoiceParticipant(c: Context) {
         return c.json({ error: "Voice service is unavailable" }, 502);
     }
 
-    return c.json({ ok: true, identity, muted: typeof muted === "boolean" ? muted : null, removed: remove });
+    return c.json({ ok: true, identity, muted: typeof muted === "boolean" ? muted : null, removed: remove }, 200);
 }

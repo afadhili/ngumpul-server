@@ -33,6 +33,7 @@ export function registerOpenApi(app: Hono) {
             persistAuth: false,
             telemetry: false,
             withDefaultFonts: false,
+            showDeveloperTools: "localhost",
         }),
     );
 }
@@ -44,7 +45,7 @@ async function buildSpec(app: Hono) {
             info: {
                 title: "Ngumpul API",
                 version: "1.0.0",
-                description: "Referensi HTTP untuk REST, autentikasi, dan GraphQL Ngumpul.",
+                description: "Referensi HTTP untuk REST dan autentikasi Ngumpul.",
             },
             servers: [{ url: "/", description: "Origin server saat ini" }],
             paths: authDocs.paths,

@@ -47,7 +47,7 @@ export async function getMyPreferences(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
     const [row] = await db.select().from(userPreference).where(eq(userPreference.userId, userId)).limit(1);
-    return c.json({ preferences: toPublicPreference(row) });
+    return c.json({ preferences: toPublicPreference(row) }, 200);
 }
 
 export async function updateMyPreferences(c: Context) {
@@ -125,5 +125,5 @@ export async function updateMyPreferences(c: Context) {
         target: userPreference.userId,
         set: { ...patch, updatedAt: new Date() },
     }).returning();
-    return c.json({ preferences: toPublicPreference(row) });
+    return c.json({ preferences: toPublicPreference(row) }, 200);
 }

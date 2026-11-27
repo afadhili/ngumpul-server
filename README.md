@@ -64,6 +64,27 @@ Open [Scalar API Reference](http://localhost:3000/docs) to browse and try the HT
 
 In Scalar, enter the session token returned by sign-in under **Authentication** using **bearerAuth**, then open **Test Request** on a protected operation. See [ENDPOINT.md](ENDPOINT.md) for WebSocket events, LiveKit, and direct S3 uploads.
 
+### Hono RPC for TypeScript clients
+
+Run `pnpm build` here and link this package from the client project with `pnpm link ../server` (adjust the path to this repository). Use the same Hono version in both projects and enable TypeScript `strict` mode. The `AppType` export gives `hc` the request and response types for the application and health routes. Use the Better Auth client for `/api/auth/*`.
+
+```ts
+import { hc } from "hono/client";
+import type { AppType } from "ngumpul-server/rpc";
+
+const api = hc<AppType>("http://localhost:3000", {
+    init: { credentials: "include" },
+});
+
+const response = await api.api.profile.$get();
+if (response.ok) {
+    const { profile } = await response.json();
+    console.log(profile.displayName);
+}
+```
+
+Run `pnpm check:rpc` after building to check request and response inference from the package export.
+
 ## Cloudflare Tunnel
 
 To expose the API, LiveKit signaling, and object storage through one tunnel with separate hostnames, see [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md). The optional `cloudflared` service uses a locally-managed tunnel config under the gitignored `cloudflared/` directory and starts with:
@@ -109,6 +130,6 @@ The remaining BACKEND_TASKS.md feature backlog is implemented; see [ENDPOINT.md]
 - LiveKit voice participant listing (per-track mic/camera/screen-share state) and manager mute/remove controls (`/api/servers/:serverId/channels/:channelId/voice-participants`). Voice, camera video, and screen sharing all run over LiveKit; the backend only issues scope tokens and reads room state.
 - Client-side encryption is supported as an opaque envelope (`encrypted: true`); the server stores ciphertext and never holds keys.
 
-`scripts/smoke-backlog.mjs` (run with the API reachable and `DATABASE_URL` pointing at a live database) exercises 60 checks across these endpoints, including WebSocket typing/presence delivery, global channel search, worker dispatch of a due scheduled message, and purging of a disappearing message. The latest run passed 60/60 and cleaned its test users afterwards.
+`scripts/smoke-backlog.mjs` (run with the API reachable and `DATABASE_URL` pointing at a live database) exercises these endpoints, including WebSocket typing and presence delivery, global channel search, dispatch of due scheduled messages, and purging of disappearing messages.
 
 Client UI for the newly added surfaces (poll cards, search, pins, drafts, presence/typing indicators, notification centre, appearance settings) is not part of this server repository.

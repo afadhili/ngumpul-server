@@ -23,7 +23,7 @@ export async function listTranslationLanguages(c: Context) {
             { code: "fr", name: "French" },
             { code: "de", name: "German" },
         ].slice(0, MAX_LANGUAGES),
-    });
+    }, 200);
 }
 
 export async function translateMessage(c: Context) {
@@ -88,5 +88,5 @@ export async function translateMessage(c: Context) {
             sourceLanguage,
             targetLanguage,
         },
-    });
+    }, 200);
 }

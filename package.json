@@ -4,16 +4,19 @@
     "private": true,
     "packageManager": "pnpm@12.22.0",
     "type": "module",
+    "exports": {
+        "./rpc": { "types": "./dist/app.d.ts" }
+    },
     "scripts": {
         "dev": "tsx watch src/server.ts",
         "build": "tsc -p tsconfig.json && node scripts/resolve-esm-imports.mjs",
+        "check:rpc": "tsc --noEmit --strict --skipLibCheck --module NodeNext --target ES2022 scripts/check-rpc-types.ts",
         "start": "node dist/server.js",
         "db:generate": "drizzle-kit generate",
         "db:migrate": "drizzle-kit migrate",
         "db:studio": "drizzle-kit studio"
     },
     "dependencies": {
-        "@apollo/server": "^5.5.2",
         "@aws-sdk/client-s3": "^3.1175.0",
         "@aws-sdk/s3-presigned-post": "^3.1175.0",
         "@aws-sdk/s3-request-presigner": "^3.1175.0",
@@ -28,9 +31,9 @@
         "dotenv": "^17.2.3",
         "drizzle-kit": "1.0.0-rc.6",
         "drizzle-orm": "^1.0.0-rc.6",
-        "graphql": "^16.15.0",
         "hono": "^4.10.6",
         "hono-openapi": "^1.6.0",
+        "json-schema-to-ts": "^3.1.1",
         "livekit-server-sdk": "2.20.1",
         "nodemailer": "^10.6.1",
         "openapi-types": "^12.1.3",

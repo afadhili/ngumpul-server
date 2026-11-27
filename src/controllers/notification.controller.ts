@@ -38,7 +38,7 @@ export async function listNotifications(c: Context) {
         notifications: rows.map(toPublicNotification),
         nextCursor: rows.length === rawLimit ? rows[rows.length - 1]?.id ?? null : null,
         unreadCount: countRow?.count ?? 0,
-    });
+    }, 200);
 }
 
 export async function markNotificationRead(c: Context) {
@@ -48,11 +48,11 @@ export async function markNotificationRead(c: Context) {
     const [existing] = await db.select().from(notification)
         .where(and(eq(notification.id, notificationId), eq(notification.userId, userId))).limit(1);
     if (!existing) return c.json({ error: "Notification not found" }, 404);
-    if (existing.readAt) return c.json({ notification: toPublicNotification(existing) });
+    if (existing.readAt) return c.json({ notification: toPublicNotification(existing) }, 200);
     const [updated] = await db.update(notification).set({ readAt: new Date() })
         .where(and(eq(notification.id, notificationId), eq(notification.userId, userId)))
         .returning();
-    return c.json({ notification: toPublicNotification(updated ?? existing) });
+    return c.json({ notification: toPublicNotification(updated ?? existing) }, 200);
 }
 
 export async function markAllNotificationsRead(c: Context) {
@@ -61,7 +61,7 @@ export async function markAllNotificationsRead(c: Context) {
     const updated = await db.update(notification).set({ readAt: new Date() })
         .where(and(eq(notification.userId, userId), isNull(notification.readAt)))
         .returning({ id: notification.id });
-    return c.json({ updatedCount: updated.length });
+    return c.json({ updatedCount: updated.length }, 200);
 }
 
 export async function deleteNotification(c: Context) {
@@ -82,7 +82,7 @@ export async function clearReadNotifications(c: Context) {
         eq(notification.userId, userId),
         sql`${notification.readAt} IS NOT NULL`,
     )).returning({ id: notification.id });
-    return c.json({ deletedCount: deleted.length });
+    return c.json({ deletedCount: deleted.length }, 200);
 }
 
 export async function getUnreadNotificationCount(c: Context) {
@@ -90,5 +90,5 @@ export async function getUnreadNotificationCount(c: Context) {
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
     const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(notification)
         .where(and(eq(notification.userId, userId), isNull(notification.readAt)));
-    return c.json({ unreadCount: row?.count ?? 0 });
+    return c.json({ unreadCount: row?.count ?? 0 }, 200);
 }

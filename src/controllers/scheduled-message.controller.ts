@@ -110,7 +110,7 @@ export async function listScheduledMessages(c: Context) {
         .where(and(...conditions))
         .orderBy(asc(scheduledMessage.scheduledFor))
         .limit(200);
-    return c.json({ scheduledMessages: rows.map(toScheduledSummary) });
+    return c.json({ scheduledMessages: rows.map(toScheduledSummary) }, 200);
 }
 
 export async function updateScheduledMessage(c: Context) {
@@ -148,7 +148,7 @@ export async function updateScheduledMessage(c: Context) {
         .returning();
     if (!row) return c.json({ error: "Scheduled message not found" }, 404);
     await publishScheduled(userId, "updated", row);
-    return c.json({ scheduledMessage: toScheduledSummary(row) });
+    return c.json({ scheduledMessage: toScheduledSummary(row) }, 200);
 }
 
 export async function cancelScheduledMessage(c: Context) {
