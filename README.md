@@ -72,7 +72,7 @@ To expose the API, LiveKit signaling, and object storage through one tunnel with
 docker compose --profile tunnel up -d cloudflared
 ```
 
-PostgreSQL can be exposed as an opt-in TCP route for remote administration; see [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md#5-database-access-opt-in). Redis is deliberately not routed through the tunnel. LiveKit media (UDP) also cannot traverse an HTTP tunnel; use LiveKit Cloud, direct media ports, or TURN/TLS.
+PostgreSQL can be exposed as an optional TCP route for remote administration; see [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md#5-database-access-optional). Redis is deliberately not routed through the tunnel. LiveKit media (UDP) also cannot traverse an HTTP tunnel; use LiveKit Cloud, direct media ports, or TURN/TLS.
 
 ## Run the full stack with Docker
 

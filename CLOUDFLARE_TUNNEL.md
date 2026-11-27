@@ -42,8 +42,6 @@ ingress:
       service: http://livekit:7880
     - hostname: storage.afadhili.my.id
       service: http://rustfs:9000
-    - hostname: db.afadhili.my.id
-      service: tcp://db:5432
     - service: http_status:404
 ```
 
@@ -61,7 +59,6 @@ cloudflared tunnel --config cloudflared/config.yml ingress validate
 cloudflared tunnel route dns ngumpul api.afadhili.my.id
 cloudflared tunnel route dns ngumpul livekit.afadhili.my.id
 cloudflared tunnel route dns ngumpul storage.afadhili.my.id
-cloudflared tunnel route dns ngumpul db.afadhili.my.id
 ```
 
 Each command creates a CNAME pointing at `<UUID>.cfargotunnel.com`.
@@ -92,7 +89,21 @@ curl -I https://storage.afadhili.my.id/health
 curl -I https://livekit.afadhili.my.id/
 ```
 
-## 5. Database access (opt-in)
+## 5. Database access (optional)
+
+The API does not need a database tunnel route. PostgreSQL stays private on the Compose network unless you explicitly enable remote administration. To enable it, add this ingress rule before the catch-all `http_status:404` rule in `cloudflared/config.yml`:
+
+```yaml
+    - hostname: db.afadhili.my.id
+      service: tcp://db:5432
+```
+
+Then create its DNS route and restart the tunnel:
+
+```sh
+cloudflared tunnel route dns ngumpul db.afadhili.my.id
+docker compose --profile tunnel up -d cloudflared
+```
 
 The `db` hostname uses Cloudflare's TCP transport, not plain PostgreSQL over the internet. Start a local forward on the client machine:
 
