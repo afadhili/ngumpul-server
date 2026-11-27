@@ -5,6 +5,7 @@ import type { Context } from "hono";
 import { db } from "../db/index";
 import { profile, user } from "../db/schema/auth";
 import { friendRequest, friendship, userBlock } from "../db/schema/community";
+import { directMessage, directMessageHidden } from "../db/schema/direct-message";
 import { isUniqueViolation } from "../lib/db-errors";
 import { accountAvatar } from "../lib/profile-avatar";
 import { getSessionUserId } from "../lib/request-auth";
@@ -23,6 +24,19 @@ export async function listFriends(c: Context) {
 
     const profiles = await db
         .select({ userId: user.id, name: user.name, username: user.username, displayName: profile.displayName,
+            unreadCount: sql<number>`(
+                select count(*)::int from ${directMessage}
+                where ${directMessage.senderId} = ${user.id}
+                    and ${directMessage.recipientId} = ${userId}
+                    and ${directMessage.readAt} is null
+                    and ${directMessage.deletedAt} is null
+                    and (${directMessage.expiresAt} is null or ${directMessage.expiresAt} > now())
+                    and not exists (
+                        select 1 from ${directMessageHidden}
+                        where ${directMessageHidden.messageId} = ${directMessage.id}
+                            and ${directMessageHidden.userId} = ${userId}
+                    )
+            )`,
             avatar: sql<string | null>`case when ${profile.photoVisibility} = 'nobody' then null else ${accountAvatar} end` })
         .from(user)
         .leftJoin(profile, eq(profile.userId, user.id))

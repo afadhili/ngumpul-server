@@ -98,6 +98,7 @@ export const contactFields = {
     name: nullable(string),
     username: nullable(string),
     displayName: nullable(string),
+    unreadCount: integer(0),
     avatar: nullable(uri),
 };
 export const contact = object(contactFields);
