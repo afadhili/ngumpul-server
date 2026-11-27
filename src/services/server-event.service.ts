@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { serverMember } from "../db/schema/community";
 import type { ChannelSummary, MemberSummary, ServerEvent, ServerEventName, ServerSummary } from "../models/realtime-event";
 import { publishUserEvent } from "./event.service";
@@ -10,8 +10,8 @@ type EventExtras = {
     member?: MemberSummary;
 };
 
-export async function getServerMemberIds(serverId: string) {
-    const rows = await db.select({ userId: serverMember.userId }).from(serverMember)
+export async function getServerMemberIds(serverId: string, executor: DbExecutor = db) {
+    const rows = await executor.select({ userId: serverMember.userId }).from(serverMember)
         .where(eq(serverMember.serverId, serverId));
     return rows.map(row => row.userId);
 }

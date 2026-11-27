@@ -250,3 +250,21 @@ export const userPreference = pgTable("user_preference", {
     settings: jsonb("settings"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const messageSubmission = pgTable(
+    "message_submission",
+    {
+        userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+        scope: text("scope").notNull(),
+        targetId: text("target_id").notNull(),
+        clientMessageId: text("client_message_id").notNull(),
+        requestHash: text("request_hash").notNull(),
+        messageId: text("message_id").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    table => [
+        primaryKey({ columns: [table.userId, table.scope, table.targetId, table.clientMessageId] }),
+        check("message_submission_scope_check", sql`${table.scope} IN ('direct','channel')`),
+        index("message_submission_created_idx").on(table.createdAt),
+    ],
+);

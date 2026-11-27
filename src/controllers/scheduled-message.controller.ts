@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, lte } from "drizzle-orm";
 import type { Context } from "hono";
-import { db } from "../db/index";
+import { db, type DbTransaction } from "../db/index";
 import { scheduledMessage } from "../db/schema/features";
 import { getChannelAccess } from "../lib/channel-access";
+import { canAccessDirectConversation } from "../lib/direct-conversation";
 import { isConversationScope, resolveConversationTarget, type ConversationScope } from "../lib/conversation-access";
 import { getSessionUserId } from "../lib/request-auth";
 import type { ScheduledMessageEvent, ScheduledMessageSummary } from "../models/realtime-event";
 import { publishUserEvent } from "../services/event.service";
+import { storeChannelMessage, storeDirectMessage } from "../services/message-create.service";
 
 const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -164,41 +166,36 @@ export async function cancelScheduledMessage(c: Context) {
     return c.body(null, 204);
 }
 
-/** Worker entry point: dispatch every due scheduled message and record the outcome. */
-export async function dispatchDueScheduledMessages(limit = 25): Promise<number> {
-    const due = await db.select().from(scheduledMessage).where(and(
-        eq(scheduledMessage.status, "pending"),
-        lte(scheduledMessage.scheduledFor, new Date()),
-    )).orderBy(asc(scheduledMessage.scheduledFor)).limit(limit);
-
+/** Commits each message and its scheduled status together while holding the job row lock. */
+export async function dispatchDueScheduledMessages(limit = 25, signal?: AbortSignal): Promise<number> {
     let processed = 0;
-    for (const item of due) {
-        try {
-            const outcome = await dispatchOne(item);
-            const status = outcome.ok ? "sent" : "failed";
-            const [updated] = await db.update(scheduledMessage).set({
+    while (processed < limit && !signal?.aborted) {
+        const completed = await db.transaction(async tx => {
+            const [item] = await tx.select().from(scheduledMessage).where(and(
+                eq(scheduledMessage.status, "pending"),
+                lte(scheduledMessage.scheduledFor, new Date()),
+            )).orderBy(asc(scheduledMessage.scheduledFor), asc(scheduledMessage.id))
+                .limit(1).for("update", { skipLocked: true });
+            if (!item) return null;
+
+            const outcome = await dispatchOne(tx, item);
+            const status: "sent" | "failed" = outcome.ok ? "sent" : "failed";
+            const [row] = await tx.update(scheduledMessage).set({
                 status,
-                sentMessageId: outcome.ok ? outcome.messageId : null,
+                sentMessageId: outcome.ok ? outcome.message.id : null,
                 failureReason: outcome.ok ? null : outcome.error,
                 updatedAt: new Date(),
-            }).where(and(eq(scheduledMessage.id, item.id), eq(scheduledMessage.status, "pending"))).returning();
-            if (updated) await publishScheduled(item.userId, status === "sent" ? "sent" : "failed", updated);
-        } catch (error) {
-            console.error("Unable to dispatch scheduled message", item.id, error);
-            const [updated] = await db.update(scheduledMessage).set({
-                status: "failed",
-                failureReason: "Unable to send scheduled message",
-                updatedAt: new Date(),
-            }).where(and(eq(scheduledMessage.id, item.id), eq(scheduledMessage.status, "pending"))).returning();
-            if (updated) await publishScheduled(item.userId, "failed", updated);
-        }
+            }).where(eq(scheduledMessage.id, item.id)).returning();
+            return { row, status, publish: outcome.ok ? outcome.publish : undefined };
+        });
+        if (!completed) break;
         processed += 1;
+        await Promise.all([completed.publish?.(), publishScheduled(completed.row.userId, completed.status, completed.row)]);
     }
     return processed;
 }
 
-async function dispatchOne(item: typeof scheduledMessage.$inferSelect): Promise<{ ok: true; messageId: string } | { ok: false; error: string }> {
-    const { createDirectMessage, createChannelMessage } = await import("../services/message-create.service");
+async function dispatchOne(executor: DbTransaction, item: typeof scheduledMessage.$inferSelect) {
     const input = {
         text: item.text,
         attachmentId: item.attachmentId,
@@ -210,21 +207,19 @@ async function dispatchOne(item: typeof scheduledMessage.$inferSelect): Promise<
         encrypted: false,
         poll: null,
     };
+    const options = { messageId: item.id };
 
     if (item.scope === "direct") {
         const peerId = item.targetId.split(":").find(id => id !== item.userId);
-        if (!peerId) return { ok: false, error: "Scheduled conversation target is invalid" };
-        const { canAccessDirectConversation } = await import("../lib/direct-conversation");
-        if (!await canAccessDirectConversation(item.userId, peerId)) {
-            return { ok: false, error: "You no longer have access to this conversation" };
+        if (!peerId) return { ok: false, error: "Scheduled conversation target is invalid" } as const;
+        if (!await canAccessDirectConversation(item.userId, peerId, executor)) {
+            return { ok: false, error: "You no longer have access to this conversation" } as const;
         }
-        const result = await createDirectMessage(item.userId, peerId, input);
-        return result.ok ? { ok: true, messageId: result.message.id } : { ok: false, error: result.error };
+        return storeDirectMessage(executor, item.userId, peerId, input, options);
     }
 
-    const access = await getChannelAccess(item.userId, item.targetId);
-    if (!access || access.kind !== "text") return { ok: false, error: "Channel not found or access denied" };
-    if (item.scope !== "channel") return { ok: false, error: "Scheduled message scope is invalid" };
-    const result = await createChannelMessage(item.userId, access, input);
-    return result.ok ? { ok: true, messageId: result.message.id } : { ok: false, error: result.error };
+    if (item.scope !== "channel") return { ok: false, error: "Scheduled message scope is invalid" } as const;
+    const access = await getChannelAccess(item.userId, item.targetId, undefined, executor);
+    if (!access || access.kind !== "text") return { ok: false, error: "Channel not found or access denied" } as const;
+    return storeChannelMessage(executor, item.userId, access, input, options);
 }

@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { user } from "../db/schema/auth";
 import { messageMention, messagePin } from "../db/schema/features";
 import { directConversationKey } from "../lib/conversation-key";
@@ -20,10 +20,11 @@ const emptyMeta = (): MessageMeta => ({ reactions: [], mentions: [], poll: null,
 export async function loadMentionMap(
     scope: "direct" | "channel",
     messageIds: string[],
+    executor: DbExecutor = db,
 ): Promise<Map<string, MessageMention[]>> {
     const result = new Map<string, MessageMention[]>();
     if (messageIds.length === 0) return result;
-    const rows = await db.select({
+    const rows = await executor.select({
         messageId: messageMention.messageId,
         userId: messageMention.mentionedUserId,
         username: user.username,
@@ -38,10 +39,10 @@ export async function loadMentionMap(
     return result;
 }
 
-async function loadPinSet(scope: "direct" | "channel", pairs: { messageId: string; targetId: string }[]) {
+async function loadPinSet(scope: "direct" | "channel", pairs: { messageId: string; targetId: string }[], executor: DbExecutor) {
     const pinned = new Set<string>();
     if (pairs.length === 0) return pinned;
-    const rows = await db.select({ messageId: messagePin.messageId, targetId: messagePin.targetId })
+    const rows = await executor.select({ messageId: messagePin.messageId, targetId: messagePin.targetId })
         .from(messagePin)
         .where(and(
             eq(messagePin.scope, scope),
@@ -55,46 +56,45 @@ async function loadPinSet(scope: "direct" | "channel", pairs: { messageId: strin
     return pinned;
 }
 
-export async function loadDirectMessageMeta(
+export function loadDirectMessageMeta(
     rows: { id: string; senderId: string; recipientId: string }[],
     viewerId: string,
-): Promise<Map<string, MessageMeta>> {
-    const result = new Map<string, MessageMeta>();
-    if (rows.length === 0) return result;
-    const ids = rows.map(row => row.id);
-    const [reactions, mentions, polls, pinned] = await Promise.all([
-        loadDirectReactions(ids, viewerId),
-        loadMentionMap("direct", ids),
-        loadPolls("direct", ids, viewerId),
-        loadPinSet("direct", rows.map(row => ({
-            messageId: row.id,
-            targetId: directConversationKey(row.senderId, row.recipientId),
-        }))),
-    ]);
-    for (const id of ids) {
-        result.set(id, {
-            reactions: reactions.get(id) ?? [],
-            mentions: mentions.get(id) ?? [],
-            poll: polls.get(id) ?? null,
-            pinned: pinned.has(id),
-        });
-    }
-    return result;
+    executor: DbExecutor = db,
+) {
+    return loadMessageMeta("direct", rows.map(row => ({
+        messageId: row.id,
+        targetId: directConversationKey(row.senderId, row.recipientId),
+    })), viewerId, executor);
 }
 
-export async function loadChannelMessageMeta(
+export function loadChannelMessageMeta(
     rows: { id: string; channelId: string }[],
     viewerId: string,
+    executor: DbExecutor = db,
+) {
+    return loadMessageMeta("channel", rows.map(row => ({ messageId: row.id, targetId: row.channelId })), viewerId, executor);
+}
+
+async function loadMessageMeta(
+    scope: "direct" | "channel",
+    pairs: { messageId: string; targetId: string }[],
+    viewerId: string,
+    executor: DbExecutor,
 ): Promise<Map<string, MessageMeta>> {
     const result = new Map<string, MessageMeta>();
-    if (rows.length === 0) return result;
-    const ids = rows.map(row => row.id);
-    const [reactions, mentions, polls, pinned] = await Promise.all([
-        loadChannelReactions(ids, viewerId),
-        loadMentionMap("channel", ids),
-        loadPolls("channel", ids, viewerId),
-        loadPinSet("channel", rows.map(row => ({ messageId: row.id, targetId: row.channelId }))),
-    ]);
+    if (pairs.length === 0) return result;
+
+    const ids = pairs.map(pair => pair.messageId);
+    const loadReactions = () => scope === "direct"
+        ? loadDirectReactions(ids, viewerId, executor)
+        : loadChannelReactions(ids, viewerId, executor);
+    const loadMentions = () => loadMentionMap(scope, ids, executor);
+    const loadMessagePolls = () => loadPolls(scope, ids, viewerId, executor);
+    const loadPins = () => loadPinSet(scope, pairs, executor);
+    const [reactions, mentions, polls, pinned] = executor === db
+        ? await Promise.all([loadReactions(), loadMentions(), loadMessagePolls(), loadPins()])
+        : [await loadReactions(), await loadMentions(), await loadMessagePolls(), await loadPins()] as const;
+
     for (const id of ids) {
         result.set(id, {
             reactions: reactions.get(id) ?? [],

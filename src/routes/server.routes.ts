@@ -175,7 +175,7 @@ serverRoutes.post(
     rest("Pesan channel", "Kirim pesan ke channel teks", object({ message: schemas.channelMessage }), {
         status: 201,
         body: schemas.channelMessageInput,
-        errors: [403, 404, 415],
+        errors: [403, 404, 409, 415],
     }),
     sendChannelMessage,
 );

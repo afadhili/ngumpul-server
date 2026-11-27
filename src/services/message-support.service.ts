@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { user } from "../db/schema/auth";
 import { channelMessage } from "../db/schema/channel-message";
 import { directMessage } from "../db/schema/direct-message";
@@ -22,10 +22,11 @@ export async function createPollForMessage(
     messageId: string,
     poll: MessagePollInput,
     createdBy: string,
+    executor: DbExecutor,
 ): Promise<PollSummary | null> {
     const pollId = randomUUID();
     const options = poll.options.map((label, index) => ({ id: randomUUID(), label, position: index }));
-    await db.insert(messagePoll).values({
+    await executor.insert(messagePoll).values({
         id: pollId,
         scope,
         messageId,
@@ -35,7 +36,7 @@ export async function createPollForMessage(
         closesAt: poll.closesAt,
         createdBy,
     });
-    await db.insert(messagePollOption).values(options.map(option => ({ ...option, pollId })));
+    await executor.insert(messagePollOption).values(options.map(option => ({ ...option, pollId })));
     return {
         id: pollId,
         messageId,
@@ -67,13 +68,13 @@ export async function saveMentions(input: {
     channelId?: string | null;
     usernames: string[];
     allowedUserIds?: Set<string>;
-}): Promise<string[]> {
+}, executor: DbExecutor): Promise<string[]> {
     const unique = [...new Set(input.usernames.map(name => name.toLowerCase()))]
         .filter(Boolean)
         .slice(0, 25);
     if (unique.length === 0) return [];
 
-    const rows = await db.select({ id: user.id, username: user.username }).from(user)
+    const rows = await executor.select({ id: user.id, username: user.username }).from(user)
         .where(inArray(sql`lower(${user.username})`, unique));
     const matched = rows
         .filter(row => row.username && unique.includes(row.username.toLowerCase()))
@@ -81,7 +82,7 @@ export async function saveMentions(input: {
         .filter(row => !input.allowedUserIds || input.allowedUserIds.has(row.id));
     if (matched.length === 0) return [];
 
-    await db.insert(messageMention).values(matched.map(row => ({
+    await executor.insert(messageMention).values(matched.map(row => ({
         id: randomUUID(),
         scope: input.scope,
         messageId: input.messageId,
@@ -111,8 +112,8 @@ function locationFrom(lat: number | null, lng: number | null, label: string | nu
  * bound to their uploader and target, so a forward of them would break the
  * attachment authorization model.
  */
-export async function resolveForwardSource(userId: string, messageId: string): Promise<ForwardSource | null> {
-    const [direct] = await db.select().from(directMessage).where(and(
+export async function resolveForwardSource(userId: string, messageId: string, executor: DbExecutor = db): Promise<ForwardSource | null> {
+    const [direct] = await executor.select().from(directMessage).where(and(
         eq(directMessage.id, messageId),
         isNull(directMessage.deletedAt),
         or(eq(directMessage.senderId, userId), eq(directMessage.recipientId, userId)),
@@ -126,10 +127,10 @@ export async function resolveForwardSource(userId: string, messageId: string): P
         };
     }
 
-    const [channel] = await db.select().from(channelMessage)
+    const [channel] = await executor.select().from(channelMessage)
         .where(and(eq(channelMessage.id, messageId), isNull(channelMessage.deletedAt))).limit(1);
     if (!channel) return null;
-    if (!await getChannelAccess(userId, channel.channelId)) return null;
+    if (!await getChannelAccess(userId, channel.channelId, undefined, executor)) return null;
     return {
         text: channel.text,
         location: locationFrom(channel.locationLat, channel.locationLng, channel.locationLabel),

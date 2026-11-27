@@ -1,5 +1,6 @@
 import { and, eq, isNotNull, isNull, lte } from "drizzle-orm";
 import { db } from "../db/index";
+import { isReady } from "./runtime-health";
 import { channelMessage } from "../db/schema/channel-message";
 import { directMessage } from "../db/schema/direct-message";
 import {
@@ -9,12 +10,14 @@ import { attachment } from "../db/schema/attachment";
 import { channelMessageReaction } from "../db/schema/reaction";
 import { directMessageReaction } from "../db/schema/reaction";
 import { deleteObject } from "./object-storage.service";
+import { purgeExpiredMessageSubmissions } from "./message-submission.service";
 import { deleteMessageSideData } from "./message-support.service";
 import { dispatchDueScheduledMessages } from "../controllers/scheduled-message.controller";
 
 const TICK_MS = 15_000;
 let timer: NodeJS.Timeout | null = null;
-let running = false;
+let activeTick: Promise<void> | undefined;
+let worker: AbortController | undefined;
 
 /** Removes messages whose disappearing timer elapsed, including attachment bytes. */
 export async function purgeExpiredMessages(limit = 100): Promise<number> {
@@ -72,35 +75,42 @@ export async function closeDuePolls(): Promise<number> {
     return closed.length;
 }
 
-async function tick() {
-    if (running) return;
-    running = true;
-    try {
-        const sent = await dispatchDueScheduledMessages();
-        if (sent > 0) console.log(`[worker] dispatched ${sent} scheduled message(s)`);
-        const purged = await purgeExpiredMessages();
-        if (purged > 0) console.log(`[worker] purged ${purged} expired message(s)`);
-        const closed = await closeDuePolls();
-        if (closed > 0) console.log(`[worker] closed ${closed} poll(s)`);
-    } catch (error) {
-        console.error("[worker] background task failed:", error);
-    } finally {
-        running = false;
+async function runTick(signal: AbortSignal) {
+    if (!await isReady()) return;
+    const tasks = [
+        { run: () => dispatchDueScheduledMessages(25, signal), action: "dispatched scheduled messages" },
+        { run: purgeExpiredMessages, action: "purged expired messages" },
+        { run: closeDuePolls, action: "closed polls" },
+        { run: purgeExpiredMessageSubmissions, action: "purged expired message submissions" },
+    ];
+    for (const { run, action } of tasks) {
+        if (signal.aborted) break;
+        try {
+            const count = await run();
+            if (count) console.log(`[worker] ${action}: ${count}`);
+        } catch (error) {
+            console.error(`[worker] failed task (${action}):`, error);
+        }
     }
 }
 
 export function startBackgroundWorker() {
     if (timer) return;
-    timer = setInterval(() => {
-        void tick();
-    }, TICK_MS);
+    const controller = new AbortController();
+    worker = controller;
+    const tick = () => {
+        activeTick ??= runTick(controller.signal).finally(() => { activeTick = undefined; });
+    };
+    timer = setInterval(tick, TICK_MS);
     timer.unref();
     console.log("[worker] scheduled/disappearing message worker started");
-    void tick();
+    tick();
 }
 
-export function stopBackgroundWorker() {
-    if (!timer) return;
-    clearInterval(timer);
+export async function stopBackgroundWorker() {
+    if (timer) clearInterval(timer);
     timer = null;
+    worker?.abort();
+    worker = undefined;
+    await activeTick;
 }

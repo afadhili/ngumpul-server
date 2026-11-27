@@ -92,7 +92,7 @@ Untuk onboarding, baca `/api/me` atau `/api/profile`. Jika `username` kosong, ce
 
 ### Chat pribadi
 
-DM membutuhkan pertemanan aktif tanpa blokir. `:peerId` adalah ID pengguna lawan bicara. Untuk riwayat DM dan channel, `limit` bernilai 1–100 (default 50), urutan di setiap halaman dari lama ke baru. Pakai `nextCursor` sebagai `before` untuk halaman sebelumnya.
+DM membutuhkan pertemanan aktif tanpa blokir. Saat mengirim DM atau pesan channel, klien dapat menyertakan `clientMessageId` dan menggunakannya kembali untuk percobaan ulang payload yang sama. Kuncinya berlaku per pengirim dan percakapan selama setidaknya 24 jam. Menggunakan kunci yang sama untuk payload berbeda mengembalikan `409`. `:peerId` adalah ID pengguna lawan bicara. Untuk riwayat DM dan channel, `limit` bernilai 1–100 (default 50), urutan di setiap halaman dari lama ke baru. Pakai `nextCursor` sebagai `before` untuk halaman sebelumnya.
 
 | Endpoint | Contoh penggunaan | Respons dan catatan |
 | --- | --- | --- |

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { conversationPreference } from "../db/schema/features";
 
 export type ConversationScope = "direct" | "channel";
@@ -14,8 +14,8 @@ export type ConversationPreferenceInput = {
     sortOrder?: number;
 };
 
-export async function getConversationPreference(userId: string, scope: ConversationScope, targetId: string) {
-    const [row] = await db.select().from(conversationPreference).where(and(
+export async function getConversationPreference(userId: string, scope: ConversationScope, targetId: string, executor: DbExecutor = db) {
+    const [row] = await executor.select().from(conversationPreference).where(and(
         eq(conversationPreference.userId, userId),
         eq(conversationPreference.scope, scope),
         eq(conversationPreference.targetId, targetId),
@@ -66,10 +66,11 @@ export async function loadPreferencesForTarget(
     scope: ConversationScope,
     targetId: string,
     userIds: string[],
+    executor: DbExecutor = db,
 ) {
     const result = new Map<string, Awaited<ReturnType<typeof getConversationPreference>>>();
     if (userIds.length === 0) return result;
-    const rows = await db.select().from(conversationPreference).where(and(
+    const rows = await executor.select().from(conversationPreference).where(and(
         eq(conversationPreference.scope, scope),
         eq(conversationPreference.targetId, targetId),
         inArray(conversationPreference.userId, userIds),
@@ -82,8 +83,8 @@ export function isMuted(preference: { mutedUntil: Date | null } | null) {
     return Boolean(preference?.mutedUntil && preference.mutedUntil.getTime() > Date.now());
 }
 
-export async function disappearingSecondsFor(userId: string, scope: ConversationScope, targetId: string) {
-    const preference = await getConversationPreference(userId, scope, targetId);
+export async function disappearingSecondsFor(userId: string, scope: ConversationScope, targetId: string, executor: DbExecutor = db) {
+    const preference = await getConversationPreference(userId, scope, targetId, executor);
     return preference?.disappearingSeconds ?? null;
 }
 

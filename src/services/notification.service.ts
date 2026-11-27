@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { notification } from "../db/schema/features";
 import type { NotificationEvent } from "../models/realtime-event";
 import { publishUserEvent } from "./event.service";
@@ -16,10 +16,10 @@ type NotificationInput = {
     actorId?: string;
 };
 
-/** Persists a notification for every recipient and pushes it in realtime. */
-export async function sendNotification(input: NotificationInput) {
+/** Stores notifications in the caller's transaction when they accompany a message. */
+export async function persistNotifications(executor: DbExecutor, input: NotificationInput) {
     const recipients = [...new Set(input.recipients.filter(Boolean))];
-    if (recipients.length === 0) return;
+    if (recipients.length === 0) return [];
     const createdAt = new Date();
     const rows = recipients.map(userId => ({
         id: randomUUID(),
@@ -33,31 +33,38 @@ export async function sendNotification(input: NotificationInput) {
         actorId: input.actorId ?? null,
         createdAt,
     }));
-    try {
-        await db.insert(notification).values(rows).onConflictDoNothing();
-    } catch (error) {
-        console.error("Unable to persist notifications:", error);
+    const persisted: (typeof notification.$inferSelect)[] = [];
+    for (let offset = 0; offset < rows.length; offset += 500) {
+        const batch = await executor.insert(notification).values(rows.slice(offset, offset + 500))
+            .onConflictDoNothing().returning();
+        persisted.push(...batch);
     }
+    return persisted;
+}
+
+export async function publishNotifications(rows: (typeof notification.$inferSelect)[]) {
+    await Promise.all(rows.map(row => publishUserEvent([row.userId], {
+        type: "notification",
+        notification: {
+            id: row.id,
+            kind: row.kind as NotificationEvent["notification"]["kind"],
+            title: row.title,
+            body: row.body,
+            ...(row.serverId ? { serverId: row.serverId } : {}),
+            ...(row.channelId ? { channelId: row.channelId } : {}),
+            ...(row.messageId ? { messageId: row.messageId } : {}),
+            ...(row.actorId ? { actorId: row.actorId } : {}),
+            createdAt: row.createdAt.toISOString(),
+        },
+    })));
+}
+
+/** Persists a notification for every recipient and pushes it in realtime. */
+export async function sendNotification(input: NotificationInput) {
     try {
-        for (const row of rows) {
-            const event: NotificationEvent = {
-                type: "notification",
-                notification: {
-                    id: row.id,
-                    kind: row.kind as NotificationEvent["notification"]["kind"],
-                    title: row.title,
-                    body: row.body,
-                    ...(row.serverId ? { serverId: row.serverId } : {}),
-                    ...(row.channelId ? { channelId: row.channelId } : {}),
-                    ...(row.messageId ? { messageId: row.messageId } : {}),
-                    ...(row.actorId ? { actorId: row.actorId } : {}),
-                    createdAt: createdAt.toISOString(),
-                },
-            };
-            await publishUserEvent([row.userId], event);
-        }
+        await publishNotifications(await persistNotifications(db, input));
     } catch (error) {
-        console.error("Unable to publish notification:", error);
+        console.error("Unable to send notification:", error);
     }
 }
 

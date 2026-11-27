@@ -299,7 +299,7 @@ apiRoutes.post(
         status: 201,
         parameters: [peerParameter],
         body: schemas.directMessageInput,
-        errors: [403, 415],
+        errors: [403, 404, 409, 415],
     }),
     sendDirectMessage,
 );
@@ -692,7 +692,7 @@ apiRoutes.post(
 apiRoutes.post(
     "/attachments/:attachmentId/complete",
     rest("Lampiran", "Verifikasi dan selesaikan upload lampiran", object({ attachment: schemas.attachment }), {
-        errors: [400, 404, 409, 410, 502],
+        errors: [400, 404, 409, 410, 502, 503],
     }),
     completeAttachmentUpload,
 );

@@ -1,5 +1,5 @@
-import type { Server } from "node:http";
-import type { IncomingMessage } from "node:http";
+import { STATUS_CODES, type IncomingMessage, type Server } from "node:http";
+import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import { auth } from "../lib/auth";
 import { getChannelAccess } from "../lib/channel-access";
@@ -7,6 +7,7 @@ import { canAccessDirectConversation } from "../lib/direct-conversation";
 import { onUserEvent, publishUserEvent } from "../services/event.service";
 import { broadcastPresence, markOffline, markOnline } from "../services/presence.service";
 import { getServerMemberIds } from "../services/server-event.service";
+import { onRedisRecovery } from "../services/redis-pubsub";
 import { onChatMessage } from "../services/realtime.service";
 import { registerChannelSocket, registerDirectSocket } from "../services/socket-registry.service";
 
@@ -19,6 +20,21 @@ export function attachWebSocket(server: Server) {
         | { type: "direct"; userId: string; peerId: string }
         | { type: "user"; userId: string };
     const scopes = new WeakMap<WebSocket, SocketScope>();
+    const activeWork = new Set<Promise<unknown>>();
+    let draining = false;
+
+    function track<T>(operation: Promise<T>) {
+        activeWork.add(operation);
+        const forget = () => { activeWork.delete(operation); };
+        void operation.then(forget, forget);
+        return operation;
+    }
+
+    const unsubscribeRecovery = onRedisRecovery(() => {
+        for (const client of webSocketServer.clients) {
+            if (client.readyState === WebSocket.OPEN) client.close(1012, "Realtime service recovered");
+        }
+    });
 
     const unsubscribe = onChatMessage(message => {
         for (const client of webSocketServer.clients) {
@@ -45,8 +61,8 @@ export function attachWebSocket(server: Server) {
         }
     });
 
-    server.on("upgrade", (request, socket, head) => {
-        void (async () => {
+    function upgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
+        track((async () => {
             const url = new URL(request.url ?? "/", "http://localhost");
             if (!isTrustedWebSocketOrigin(request)) return reject(socket, 403, "Forbidden origin");
 
@@ -74,6 +90,7 @@ export function attachWebSocket(server: Server) {
                 return reject(socket, 404, "Not found");
             }
 
+            if (draining) return reject(socket, 503, "Server is shutting down");
             webSocketServer.handleUpgrade(request, socket, head, webSocket => {
                 scopes.set(webSocket, scope);
                 webSocket.send(JSON.stringify(scope.type === "channel"
@@ -83,13 +100,13 @@ export function attachWebSocket(server: Server) {
                         : { type: "connected", userId: scope.userId }));
 
                 if (scope.type === "user") {
-                    void markOnline(scope.userId)
+                    const online = track(markOnline(scope.userId)
                         .then(() => broadcastPresence(scope.userId))
-                        .catch(error => console.error("Unable to mark presence online:", error));
+                        .catch(error => console.error("Unable to mark presence online:", error)));
                     webSocket.on("close", () => {
-                        void markOffline(scope.userId)
+                        track(online.then(() => markOffline(scope.userId))
                             .then(() => broadcastPresence(scope.userId))
-                            .catch(error => console.error("Unable to mark presence offline:", error));
+                            .catch(error => console.error("Unable to mark presence offline:", error)));
                     });
                 }
 
@@ -112,11 +129,12 @@ export function attachWebSocket(server: Server) {
 
                 const revalidate = channelScope
                     ? setInterval(() => {
-                        void getChannelAccess(channelScope.userId, channelScope.channelId).then(access => {
+                        if (draining) return;
+                        track(getChannelAccess(channelScope.userId, channelScope.channelId).then(access => {
                             if (!access || access.kind !== "text") {
                                 webSocket.close(4003, "You no longer have access to this channel");
                             }
-                        }).catch(error => console.error("Unable to revalidate channel access:", error));
+                        }).catch(error => console.error("Unable to revalidate channel access:", error)));
                     }, REVALIDATE_INTERVAL_MS)
                     : null;
                 revalidate?.unref();
@@ -128,21 +146,36 @@ export function attachWebSocket(server: Server) {
                 });
                 const typingWindow = { lastSent: 0 };
                 webSocket.on("message", raw => {
-                    void handleClientMessage(webSocket, scopes.get(webSocket) ?? scope, raw, typingWindow);
+                    if (!draining) {
+                        track(handleClientMessage(webSocket, scopes.get(webSocket) ?? scope, raw, typingWindow)
+                            .catch(error => console.error("Unable to handle WebSocket message:", error)));
+                    }
                 });
                 webSocket.on("error", error => console.error("WebSocket error:", error.message));
             });
         })().catch(error => {
             console.error("WebSocket upgrade failed:", error);
             reject(socket, 500, "WebSocket upgrade failed");
-        });
-    });
+        }));
+    }
+    server.on("upgrade", upgrade);
 
-    return () => {
-        unsubscribe();
-        unsubscribeUserEvents();
-        for (const client of webSocketServer.clients) client.terminate();
-        webSocketServer.close();
+    return {
+        terminate() {
+            for (const client of webSocketServer.clients) client.terminate();
+        },
+        async close() {
+            draining = true;
+            server.off("upgrade", upgrade);
+            unsubscribe();
+            unsubscribeUserEvents();
+            unsubscribeRecovery();
+            for (const client of webSocketServer.clients) client.close(1001, "Server shutting down");
+            await new Promise<void>((resolve, reject) => {
+                webSocketServer.close(error => error ? reject(error) : resolve());
+            });
+            await Promise.allSettled(activeWork);
+        },
     };
 }
 
@@ -238,17 +271,7 @@ function toOrigin(value: string) {
     }
 }
 
-function reject(socket: import("node:stream").Duplex, status: number, message: string) {
+function reject(socket: Duplex, status: number, message: string) {
     if (socket.destroyed) return;
-    const statusText = status === 401
-        ? "Unauthorized"
-        : status === 403
-            ? "Forbidden"
-            : status === 404
-                ? "Not Found"
-                : status === 500
-                    ? "Internal Server Error"
-                    : "Bad Request";
-    socket.write(`HTTP/1.1 ${status} ${statusText}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n${message}`);
-    socket.destroy();
+    socket.end(`HTTP/1.1 ${status} ${STATUS_CODES[status]}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n${message}`);
 }

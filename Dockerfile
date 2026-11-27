@@ -18,4 +18,4 @@ COPY --from=build /app/dist ./dist
 COPY drizzle ./drizzle
 COPY drizzle.config.ts ./
 EXPOSE 3000
-CMD ["sh", "-c", "pnpm db:migrate && pnpm start"]
+CMD ["sh", "-c", "pnpm db:migrate && exec node dist/server.js"]

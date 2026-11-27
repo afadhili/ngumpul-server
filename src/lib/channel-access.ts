@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { serverChannel, serverMember } from "../db/schema/community";
 
 export type ServerRole = "owner" | "admin" | "member";
@@ -11,11 +11,11 @@ export type ChannelAccess = {
     role: ServerRole;
 };
 
-export async function getChannelAccess(userId: string, channelId: string, serverId?: string) {
+export async function getChannelAccess(userId: string, channelId: string, serverId?: string, executor: DbExecutor = db) {
     const conditions = [eq(serverChannel.id, channelId), eq(serverMember.userId, userId)];
     if (serverId !== undefined) conditions.push(eq(serverChannel.serverId, serverId));
 
-    const [row] = await db.select({
+    const [row] = await executor.select({
         channelId: serverChannel.id,
         serverId: serverChannel.serverId,
         kind: serverChannel.kind,

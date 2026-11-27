@@ -27,7 +27,7 @@ src/
 
 For `pnpm dev`, set `S3_ENDPOINT=http://localhost:9000` in `.env`. The API container reads `S3_ENDPOINT_DOCKER`, which defaults to `http://minio:9000`.
 
-The server listens on `http://localhost:3000` by default. `GET /health` is a health check, Better Auth is mounted at `/api/auth/*`, and `GET /api/me` returns the signed-in user or `401`.
+The server listens on `http://localhost:3000` by default. Use `GET /health` to check the HTTP process and `GET /ready` to check whether the API can reach PostgreSQL. Redis and S3 connect independently so the REST API can start while realtime events or attachments are recovering. Better Auth is mounted at `/api/auth/*`, and `GET /api/me` returns the signed-in user or `401`.
 
 `GET /api/users/search?username=...&mode=like|exact` searches usernames for signed-in users. `like` is the default and performs a case-insensitive partial match; `exact` performs a case-sensitive exact match. The response contains up to 20 matching users with `id`, `username`, `name`, and `image`. Username is optional during Better Auth email sign-up.
 

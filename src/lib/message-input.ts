@@ -9,6 +9,7 @@ export type MessagePollInput = {
 };
 
 export type MessageInput = {
+    clientMessageId?: string;
     text: string | null;
     attachmentId: string | null;
     replyToMessageId: string | null;
@@ -37,6 +38,12 @@ export function parseMessageInput(body: Record<string, unknown>): { value: Messa
     if (replyToMessageId === INVALID) return fail("replyToMessageId must be a message ID");
     const forwardedFromId = parseId(body.forwardedFromId, "forwardedFromId");
     if (forwardedFromId === INVALID) return fail("forwardedFromId must be a message ID");
+
+    const clientMessageId = body.clientMessageId;
+    if (clientMessageId !== undefined
+        && (typeof clientMessageId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(clientMessageId))) {
+        return fail("clientMessageId must contain 1–128 letters, numbers, underscores, or hyphens");
+    }
 
     const location = parseLocation(body.location);
     if (location === INVALID) return fail("location must provide lat between -90 and 90 and lng between -180 and 180");
@@ -68,6 +75,7 @@ export function parseMessageInput(body: Record<string, unknown>): { value: Messa
 
     return {
         value: {
+            clientMessageId,
             text: trimmed,
             attachmentId,
             replyToMessageId,
@@ -125,8 +133,6 @@ function parsePoll(value: unknown): MessagePollInput | null | typeof INVALID {
         if (typeof record.closesAt !== "string") return INVALID;
         const parsed = new Date(record.closesAt);
         if (Number.isNaN(parsed.getTime())) return INVALID;
-        if (parsed.getTime() <= Date.now()) return INVALID;
-        if (parsed.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000) return INVALID;
         closesAt = parsed;
     }
     return {

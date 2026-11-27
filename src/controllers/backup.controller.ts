@@ -22,43 +22,64 @@ export async function exportBackup(c: Context) {
     const userId = await getSessionUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
-    const [account] = await db.select({
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        image: user.image,
-        createdAt: user.createdAt,
-    }).from(user).where(eq(user.id, userId)).limit(1);
+    const [account] = await db
+        .select({
+            id: user.id,
+            name: user.name,
+            username: user.username,
+            email: user.email,
+            image: user.image,
+            createdAt: user.createdAt,
+        })
+        .from(user)
+        .where(eq(user.id, userId))
+        .limit(1);
     const [profileRow] = await db.select().from(profile).where(eq(profile.userId, userId)).limit(1);
     const [preferences] = await db.select().from(userPreference).where(eq(userPreference.userId, userId)).limit(1);
-    const preferencesList = await db.select().from(conversationPreference)
+    const preferencesList = await db
+        .select()
+        .from(conversationPreference)
         .where(eq(conversationPreference.userId, userId));
     const drafts = await db.select().from(messageDraft).where(eq(messageDraft.userId, userId));
     const pins = await db.select().from(messagePin).where(eq(messagePin.pinnedBy, userId));
     const scheduled = await db.select().from(scheduledMessage).where(eq(scheduledMessage.userId, userId));
-    const notifications = await db.select().from(notification)
+    const notifications = await db
+        .select()
+        .from(notification)
         .where(eq(notification.userId, userId))
         .orderBy(desc(notification.createdAt))
         .limit(500);
 
-    const memberships = await db.select({ serverId: serverMember.serverId })
-        .from(serverMember).where(eq(serverMember.userId, userId));
+    const memberships = await db
+        .select({ serverId: serverMember.serverId })
+        .from(serverMember)
+        .where(eq(serverMember.userId, userId));
     const serverIds = memberships.map(row => row.serverId);
-    const servers = serverIds.length === 0 ? [] : await db.select().from(communityServer)
-        .where(inArray(communityServer.id, serverIds));
-    const channels = serverIds.length === 0 ? [] : await db.select().from(serverChannel)
-        .where(inArray(serverChannel.serverId, serverIds));
+    const servers =
+        serverIds.length === 0
+            ? []
+            : await db.select().from(communityServer).where(inArray(communityServer.id, serverIds));
+    const channels =
+        serverIds.length === 0
+            ? []
+            : await db.select().from(serverChannel).where(inArray(serverChannel.serverId, serverIds));
     const channelIds = channels.map(channel => channel.id);
 
-    const directRows = await db.select().from(directMessage).where(or(
-        eq(directMessage.senderId, userId),
-        eq(directMessage.recipientId, userId),
-    )).orderBy(desc(directMessage.createdAt)).limit(MAX_MESSAGES_PER_KIND);
-    const channelRows = channelIds.length === 0 ? [] : await db.select().from(channelMessage)
-        .where(inArray(channelMessage.channelId, channelIds))
-        .orderBy(desc(channelMessage.createdAt))
+    const directRows = await db
+        .select()
+        .from(directMessage)
+        .where(or(eq(directMessage.senderId, userId), eq(directMessage.recipientId, userId)))
+        .orderBy(desc(directMessage.createdAt))
         .limit(MAX_MESSAGES_PER_KIND);
+    const channelRows =
+        channelIds.length === 0
+            ? []
+            : await db
+                  .select()
+                  .from(channelMessage)
+                  .where(inArray(channelMessage.channelId, channelIds))
+                  .orderBy(desc(channelMessage.createdAt))
+                  .limit(MAX_MESSAGES_PER_KIND);
 
     return c.json({
         backup: {
@@ -76,7 +97,8 @@ export async function exportBackup(c: Context) {
                 id: server.id,
                 name: server.name,
                 description: server.description,
-                channels: channels.filter(channel => channel.serverId === server.id)
+                channels: channels
+                    .filter(channel => channel.serverId === server.id)
                     .map(channel => ({ id: channel.id, name: channel.name, kind: channel.kind })),
             })),
             directMessages: directRows,
@@ -129,23 +151,27 @@ export async function restoreBackup(c: Context) {
     for (const entry of directRows) {
         const row = asStringRecord(entry);
         const id = row?.id;
-        const peerId = row?.senderId === userId ? row.recipientId : row?.senderId;
+        const peerId = row?.senderId === userId ? row?.recipientId : row?.senderId;
         if (!id || typeof peerId !== "string" || typeof row?.text !== "string") {
             result.skipped += 1;
             continue;
         }
-        if (!await canUseConversationTarget(userId, "direct", [userId, peerId].sort().join(":"))) {
+        if (!(await canUseConversationTarget(userId, "direct", [userId, peerId].sort().join(":")))) {
             result.skipped += 1;
             continue;
         }
-        const inserted = await db.insert(directMessage).values({
-            id,
-            senderId: userId,
-            recipientId: peerId,
-            text: row.text.slice(0, 4000),
-            createdAt: parseDate(row.createdAt),
-            updatedAt: parseDate(row.updatedAt),
-        }).onConflictDoNothing().returning({ id: directMessage.id });
+        const inserted = await db
+            .insert(directMessage)
+            .values({
+                id,
+                senderId: userId,
+                recipientId: peerId,
+                text: row.text.slice(0, 4000),
+                createdAt: parseDate(row.createdAt),
+                updatedAt: parseDate(row.updatedAt),
+            })
+            .onConflictDoNothing()
+            .returning({ id: directMessage.id });
         if (inserted.length > 0) result.directMessagesImported += 1;
         else result.skipped += 1;
     }
@@ -157,44 +183,55 @@ export async function restoreBackup(c: Context) {
             result.skipped += 1;
             continue;
         }
-        if (!await canUseConversationTarget(userId, "channel", row.channelId)) {
+        if (!(await canUseConversationTarget(userId, "channel", row.channelId))) {
             result.skipped += 1;
             continue;
         }
-        const inserted = await db.insert(channelMessage).values({
-            id,
-            channelId: row.channelId,
-            senderId: userId,
-            text: row.text.slice(0, 4000),
-            createdAt: parseDate(row.createdAt),
-            updatedAt: parseDate(row.updatedAt),
-        }).onConflictDoNothing().returning({ id: channelMessage.id });
+        const inserted = await db
+            .insert(channelMessage)
+            .values({
+                id,
+                channelId: row.channelId,
+                senderId: userId,
+                text: row.text.slice(0, 4000),
+                createdAt: parseDate(row.createdAt),
+                updatedAt: parseDate(row.updatedAt),
+            })
+            .onConflictDoNothing()
+            .returning({ id: channelMessage.id });
         if (inserted.length > 0) result.channelMessagesImported += 1;
         else result.skipped += 1;
     }
 
     for (const entry of draftRows) {
         const row = asStringRecord(entry);
-        if (!row || (row.scope !== "direct" && row.scope !== "channel")
-            || typeof row.targetId !== "string" || typeof row.text !== "string") {
+        if (
+            !row ||
+            (row.scope !== "direct" && row.scope !== "channel") ||
+            typeof row.targetId !== "string" ||
+            typeof row.text !== "string"
+        ) {
             result.skipped += 1;
             continue;
         }
-        if (!await canUseConversationTarget(userId, row.scope, row.targetId)) {
+        if (!(await canUseConversationTarget(userId, row.scope, row.targetId))) {
             result.skipped += 1;
             continue;
         }
-        await db.insert(messageDraft).values({
-            id: crypto.randomUUID(),
-            userId,
-            scope: row.scope,
-            targetId: row.targetId,
-            text: row.text.slice(0, 4000),
-            updatedAt: new Date(),
-        }).onConflictDoUpdate({
-            target: [messageDraft.userId, messageDraft.scope, messageDraft.targetId],
-            set: { text: row.text.slice(0, 4000), updatedAt: new Date() },
-        });
+        await db
+            .insert(messageDraft)
+            .values({
+                id: crypto.randomUUID(),
+                userId,
+                scope: row.scope,
+                targetId: row.targetId,
+                text: row.text.slice(0, 4000),
+                updatedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+                target: [messageDraft.userId, messageDraft.scope, messageDraft.targetId],
+                set: { text: row.text.slice(0, 4000), updatedAt: new Date() },
+            });
         result.draftsImported += 1;
     }
 
@@ -216,11 +253,13 @@ function parseDate(value: unknown): Date {
 
 /** Convenience helper used by tests to confirm a user can still read a channel. */
 export async function canRestoreIntoChannel(userId: string, channelId: string) {
-    const [membership] = await db.select({ userId: serverMember.userId }).from(serverMember)
-        .innerJoin(serverChannel, and(
-            eq(serverChannel.serverId, serverMember.serverId),
-            eq(serverChannel.id, channelId),
-        ))
+    const [membership] = await db
+        .select({ userId: serverMember.userId })
+        .from(serverMember)
+        .innerJoin(
+            serverChannel,
+            and(eq(serverChannel.serverId, serverMember.serverId), eq(serverChannel.id, channelId)),
+        )
         .where(and(eq(serverMember.userId, userId), eq(serverChannel.kind, "text")))
         .limit(1);
     return Boolean(membership);

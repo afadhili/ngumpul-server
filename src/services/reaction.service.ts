@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { channelMessageReaction } from "../db/schema/reaction";
 import { directMessageReaction } from "../db/schema/reaction";
 import type { MessageReaction } from "../models/chat-message";
@@ -33,10 +33,10 @@ export function publicReactionSummary(reactions: MessageReaction[]): ReactionSum
     return reactions.map(({ emoji, count, userIds }) => ({ emoji, count, userIds }));
 }
 
-export async function loadDirectReactions(messageIds: string[], currentUserId: string) {
+export async function loadDirectReactions(messageIds: string[], currentUserId: string, executor: DbExecutor = db) {
     const result = new Map<string, MessageReaction[]>();
     if (messageIds.length === 0) return result;
-    const rows = await db.select({
+    const rows = await executor.select({
         messageId: directMessageReaction.messageId,
         userId: directMessageReaction.userId,
         emoji: directMessageReaction.emoji,
@@ -47,10 +47,10 @@ export async function loadDirectReactions(messageIds: string[], currentUserId: s
     return result;
 }
 
-export async function loadChannelReactions(messageIds: string[], currentUserId: string) {
+export async function loadChannelReactions(messageIds: string[], currentUserId: string, executor: DbExecutor = db) {
     const result = new Map<string, MessageReaction[]>();
     if (messageIds.length === 0) return result;
-    const rows = await db.select({
+    const rows = await executor.select({
         messageId: channelMessageReaction.messageId,
         userId: channelMessageReaction.userId,
         emoji: channelMessageReaction.emoji,

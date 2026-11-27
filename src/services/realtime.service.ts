@@ -1,38 +1,26 @@
-import "dotenv/config";
-import { createClient } from "redis";
 import { isChatMessage, type ChatMessage } from "../models/chat-message";
+import { createRedisPubSub } from "./redis-pubsub";
 
-const channel = "pbp:chat:messages";
-const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
-const publisher = createClient({ url: redisUrl });
-const subscriber = publisher.duplicate();
 const listeners = new Set<(message: ChatMessage) => void>();
 
-publisher.on("error", error => console.error("Redis publisher error:", error.message));
-subscriber.on("error", error => console.error("Redis subscriber error:", error.message));
+const pubsub = createRedisPubSub("chat", "pbp:chat:messages", raw => {
+    try {
+        const message: unknown = JSON.parse(raw);
+        if (!isChatMessage(message)) return;
+        for (const listener of listeners) listener(message);
+    } catch (error) {
+        console.error("Invalid Redis chat message:", error);
+    }
+});
 
-export async function connectRealtimeService() {
-    await Promise.all([publisher.connect(), subscriber.connect()]);
-    await subscriber.subscribe(channel, raw => {
-        try {
-            const message: unknown = JSON.parse(raw);
-            if (!isChatMessage(message)) return;
-            for (const listener of listeners) listener(message);
-        } catch (error) {
-            console.error("Invalid Redis chat message:", error);
-        }
-    });
-}
+export const connectRealtimeService = pubsub.connect;
+export const closeRealtimeService = pubsub.close;
 
 export async function publishChatMessage(message: ChatMessage) {
-    await publisher.publish(channel, JSON.stringify(message));
+    await pubsub.publish(JSON.stringify(message));
 }
 
 export function onChatMessage(listener: (message: ChatMessage) => void) {
     listeners.add(listener);
     return () => listeners.delete(listener);
-}
-
-export async function closeRealtimeService() {
-    await Promise.all([publisher.quit(), subscriber.quit()]);
 }

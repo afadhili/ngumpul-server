@@ -15,6 +15,7 @@ import {
     deleteObject,
     finalizeUploadedObject,
     inspectObject,
+    isMissingObject,
     readObjectPrefix,
 } from "../services/object-storage.service";
 
@@ -93,8 +94,9 @@ export async function completeAttachmentUpload(c: Context) {
     let object;
     try {
         object = await inspectObject(item.uploadKey);
-    } catch {
-        return c.json({ error: "Uploaded object was not found" }, 409);
+    } catch (error) {
+        if (isMissingObject(error)) return c.json({ error: "Uploaded object was not found" }, 409);
+        return c.json({ error: "Object storage is unavailable" }, 503);
     }
     if (object.ContentLength !== item.sizeBytes || object.ContentType?.toLowerCase() !== item.mimeType) {
         await deleteObject(item.uploadKey).catch(() => undefined);

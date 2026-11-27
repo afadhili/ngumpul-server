@@ -131,6 +131,10 @@ const pollInput = object(
 );
 
 const messageInputFields = {
+    clientMessageId: {
+        type: "string", pattern: "^[A-Za-z0-9_-]{1,128}$",
+        description: "Gunakan kembali ID yang sama saat mencoba ulang payload yang sama. ID berlaku per pengirim dan percakapan selama setidaknya 24 jam.",
+    } as const,
     text: nullable(text(0, 4000)),
     attachmentId: nullable(id),
     replyToMessageId: nullable(id),

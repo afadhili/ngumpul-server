@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { db } from "../db/index";
+import { db, type DbExecutor } from "../db/index";
 import { messagePoll, messagePollOption, messagePollVote } from "../db/schema/features";
 import type { PollSummary } from "../models/realtime-event";
 
@@ -9,23 +9,26 @@ export async function loadPolls(
     scope: "direct" | "channel",
     messageIds: string[],
     viewerId: string,
+    executor: DbExecutor = db,
 ): Promise<Map<string, PollSummary>> {
     const result = new Map<string, PollSummary>();
     if (messageIds.length === 0) return result;
 
-    const polls = await db.select().from(messagePoll).where(and(
+    const polls = await executor.select().from(messagePoll).where(and(
         eq(messagePoll.scope, scope),
         inArray(messagePoll.messageId, messageIds),
     ));
     if (polls.length === 0) return result;
 
     const pollIds = polls.map(poll => poll.id);
-    const [options, votes] = await Promise.all([
-        db.select().from(messagePollOption)
-            .where(inArray(messagePollOption.pollId, pollIds))
-            .orderBy(asc(messagePollOption.position)),
-        db.select().from(messagePollVote).where(inArray(messagePollVote.pollId, pollIds)),
-    ]);
+    const loadOptions = () => executor.select().from(messagePollOption)
+        .where(inArray(messagePollOption.pollId, pollIds))
+        .orderBy(asc(messagePollOption.position));
+    const loadVotes = () => executor.select().from(messagePollVote)
+        .where(inArray(messagePollVote.pollId, pollIds));
+    const [options, votes] = executor === db
+        ? await Promise.all([loadOptions(), loadVotes()])
+        : [await loadOptions(), await loadVotes()] as const;
 
     for (const poll of polls) {
         result.set(poll.messageId, buildSummary(poll, options, votes, viewerId));
