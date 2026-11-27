@@ -1,3 +1,4 @@
+import { directCallToken, listDirectCalls, startDirectCall, updateDirectCall } from "../controllers/direct-call.controller";
 import { Hono } from "hono";
 import {
     completeAttachmentUpload,
@@ -92,6 +93,15 @@ const messageParameter = {
     description: "ID pesan.",
 } as const;
 const conversationScope = { in: "path", name: "scope", required: true, schema: schemas.scope } as const;
+
+const callParameter = { in: "path", name: "callId", required: true, schema: schemas.id } as const;
+const callResponse = object({
+    id: schemas.id, callerId: schemas.id, recipientId: schemas.id,
+    kind: choice("audio", "video"),
+    status: choice("ringing", "active", "declined", "ended", "missed"),
+    createdAt: dateTime, expiresAt: dateTime, answeredAt: nullable(dateTime), endedAt: nullable(dateTime),
+});
+const directCallResponse = object({ call: callResponse });
 
 const apiRoutes = new Hono()
     .get("/me", ...rest(getCurrentUser, "Akun", "Ambil akun yang sedang login", object({ user: schemas.account })))
@@ -271,6 +281,19 @@ const apiRoutes = new Hono()
         "/friends/:userId",
         ...rest(removeFriend, "Pertemanan", "Hapus teman", undefined, { status: 204, errors: [404] }),
     )
+    .get("/direct-calls", ...rest(listDirectCalls, "Panggilan pribadi", "Riwayat panggilan pribadi",
+        object({ calls: array(callResponse) })))
+    .post("/direct-calls/peer/:peerId", ...rest(startDirectCall, "Panggilan pribadi", "Mulai panggilan pribadi",
+        directCallResponse, {
+            status: 201, body: object({ kind: choice("audio", "video") }),
+            parameters: [{ in: "path", name: "peerId", required: true, schema: schemas.id }],
+            errors: [400, 403, 409, 503],
+        }))
+    .patch("/direct-calls/:callId", ...rest(updateDirectCall, "Panggilan pribadi", "Tanggapi atau akhiri panggilan",
+        directCallResponse, { parameters: [callParameter], body: object({ action: choice("accept", "decline", "end") }),
+            errors: [400, 403, 404, 409] }))
+    .post("/direct-calls/:callId/token", ...rest(directCallToken, "Panggilan pribadi", "Ambil token media",
+        object({ url: uri, token: string, room: string }), { parameters: [callParameter], errors: [403, 404, 503] }))
     .get(
         "/direct-messages/:id",
         ...rest(listDirectMessages, "Pesan pribadi", "Ambil riwayat pesan dengan teman", schemas.messagePage(schemas.directMessage), {

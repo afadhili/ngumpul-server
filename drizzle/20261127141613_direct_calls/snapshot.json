@@ -1,0 +1,416 @@
+{
+  "type": "diff",
+  "version": "10",
+  "dialect": "postgres",
+  "id": "7376db88-68ca-47a4-aa24-1efa78a9fe54",
+  "prevIds": [
+    "1c9e7120-bb26-4bf6-b2c6-64416c1877c1"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "direct_call"
+      ],
+      "writes": [
+        "s|tbl|public.direct_call",
+        "n|tbl|public.direct_call",
+        "e|tbl|public.direct_call",
+        "n|rel|public.direct_call",
+        "n|type|public.direct_call",
+        "n|rel|public.direct_call_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "direct_call",
+        "direct_call_caller_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.direct_call_caller_created_idx",
+        "n|idx|public.direct_call_caller_created_idx",
+        "e|idx|public.direct_call_caller_created_idx",
+        "n|rel|public.direct_call_caller_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.direct_call",
+        "n|sch|public",
+        "n|col|public.direct_call.caller_id",
+        "n|col|public.direct_call.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "direct_call",
+        "direct_call_recipient_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.direct_call_recipient_created_idx",
+        "n|idx|public.direct_call_recipient_created_idx",
+        "e|idx|public.direct_call_recipient_created_idx",
+        "n|rel|public.direct_call_recipient_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.direct_call",
+        "n|sch|public",
+        "n|col|public.direct_call.recipient_id",
+        "n|col|public.direct_call.created_at"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "direct_call"
+      ],
+      "writes": [
+        "s|fk|public.direct_call.direct_call_caller_id_user_id_fkey",
+        "n|fk|public.direct_call.direct_call_caller_id_user_id_fkey",
+        "e|fk|public.direct_call.direct_call_caller_id_user_id_fkey",
+        "n|con|public.direct_call.direct_call_caller_id_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.direct_call",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.direct_call.caller_id",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "direct_call"
+      ],
+      "writes": [
+        "s|fk|public.direct_call.direct_call_recipient_id_user_id_fkey",
+        "n|fk|public.direct_call.direct_call_recipient_id_user_id_fkey",
+        "e|fk|public.direct_call.direct_call_recipient_id_user_id_fkey",
+        "n|con|public.direct_call.direct_call_recipient_id_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.direct_call",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.direct_call.recipient_id",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "direct_call",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "caller_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "recipient_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "kind",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "status",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "answered_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "ended_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_caller_created_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "caller_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_recipient_created_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "recipient_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_caller_id_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "caller_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_recipient_id_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "recipient_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_distinct_users",
+        "value": "\"caller_id\" <> \"recipient_id\"",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_kind_check",
+        "value": "\"kind\" IN ('audio', 'video')",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "direct_call",
+        "name": "direct_call_status_check",
+        "value": "\"status\" IN ('ringing', 'active', 'declined', 'ended')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

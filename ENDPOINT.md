@@ -379,6 +379,21 @@ Event yang diterima melalui `/ws/user`:
 
 Handshake menolak parameter yang hilang dengan `400`, sesi invalid dengan `401`, akses atau origin yang ditolak dengan `403`, dan path tidak dikenal dengan `404`. Jika koneksi terputus, sambungkan ulang dengan jeda bertahap, lalu ambil halaman terbaru melalui REST. Ambil halaman yang lebih lama sampai bertemu ID pesan yang sudah disimpan. Server tidak memutar ulang event yang terlewat. Untuk kode tutup `4003`, periksa akses sebelum mencoba lagi.
 
+## Panggilan pribadi
+
+Panggilan suara dan video DM memakai sesi Ngumpul dan pertemanan aktif. Satu akun hanya bisa ikut satu panggilan pribadi yang sedang berdering atau aktif.
+
+| Endpoint | Permintaan dan respons |
+| --- | --- |
+| `GET /api/direct-calls` | `200 {calls}` berisi maksimal 50 panggilan milik akun, dari yang terbaru. |
+| `POST /api/direct-calls/peer/:peerId` | Body `{"kind":"audio"}` atau `{"kind":"video"}`. `201 {call}` berstatus `ringing`. Percobaan ulang untuk panggilan yang masih berdering mengembalikan panggilan yang sama. `409` jika salah satu akun sibuk. |
+| `PATCH /api/direct-calls/:callId` | Body `{"action":"accept"}`, `{"action":"decline"}`, atau `{"action":"end"}`. Penerima hanya dapat menerima atau menolak selama panggilan berdering. Kedua peserta dapat mengakhiri panggilan. |
+| `POST /api/direct-calls/:callId/token` | `200 {url,token,room}` untuk SDK LiveKit. Tersedia bagi peserta dengan akses DM selama panggilan aktif. |
+
+Tiap `call` berisi `id`, `callerId`, `recipientId`, `kind`, `status`, `createdAt`, `expiresAt`, `answeredAt`, dan `endedAt`. Undangan kedaluwarsa setelah 45 detik dan ditampilkan sebagai `missed`. Perubahan memicu event `{type:"direct_call",callId,status}` di `/ws/user` milik peserta. Muat ulang riwayat saat menerima event atau saat socket tersambung kembali. Ambil token hanya untuk panggilan yang telah diterima. Putuskan koneksi ruang dan hentikan publikasi media saat keluar.
+
+Panggilan memerlukan migrasi tabel `direct_call`, Redis untuk event, dan konfigurasi `LIVEKIT_PUBLIC_URL`, `LIVEKIT_API_KEY`, serta `LIVEKIT_API_SECRET`. Backend memakai `LIVEKIT_URL` untuk menutup ruang bila disetel.
+
 ## LiveKit
 
 Gunakan ketiga endpoint berikut untuk channel dengan `kind:"voice"`. Pemanggil harus menjadi anggota grup. Token dari endpoint voice digunakan untuk koneksi LiveKit, sementara token sesi Ngumpul digunakan untuk request HTTP ke API.

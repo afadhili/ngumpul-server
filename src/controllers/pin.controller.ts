@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { channelMessage } from "../db/schema/channel-message";
-import { directMessage } from "../db/schema/direct-message";
+import { directMessage, directMessageHidden } from "../db/schema/direct-message";
 import { messagePin } from "../db/schema/features";
 import { getChannelAccess } from "../lib/channel-access";
 import { directConversationKey } from "../lib/conversation-key";
@@ -25,12 +25,16 @@ export async function listDirectPins(c: Context) {
     const pins = await db.select().from(messagePin).where(and(
         eq(messagePin.scope, "direct"),
         eq(messagePin.targetId, targetId),
-    ));
+    )).orderBy(desc(messagePin.pinnedAt));
     const ids = pins.map(pin => pin.messageId);
     if (ids.length === 0) return c.json({ messages: [] }, 200);
     const rows = await db.select().from(directMessage).where(and(
         inArray(directMessage.id, ids),
         isNull(directMessage.deletedAt),
+        or(isNull(directMessage.expiresAt), sql`${directMessage.expiresAt} > now()`),
+        notExists(db.select({ messageId: directMessageHidden.messageId }).from(directMessageHidden).where(and(
+            eq(directMessageHidden.messageId, directMessage.id), eq(directMessageHidden.userId, userId),
+        ))),
     ));
     const meta = await loadDirectMessageMeta(rows, userId);
     const byId = new Map(rows.map(row => [row.id, toPublicDirectMessage(row, metaFor(meta, row.id))]));
@@ -52,6 +56,8 @@ export async function pinDirectMessage(c: Context) {
     const members = new Set([message.senderId, message.recipientId]);
     if (!members.has(userId)) return c.json({ error: "Message not found" }, 404);
     const peerId = message.senderId === userId ? message.recipientId : message.senderId;
+    if (!await canAccessDirectConversation(userId, peerId))
+        return c.json({ error: "You do not have access to this conversation" }, 403);
 
     const targetId = directConversationKey(message.senderId, message.recipientId);
     const [pin] = await db.insert(messagePin).values({
@@ -86,6 +92,8 @@ export async function unpinDirectMessage(c: Context) {
     if (!message) return c.json({ error: "Message not found" }, 404);
     if (message.senderId !== userId && message.recipientId !== userId) return c.json({ error: "Message not found" }, 404);
     const peerId = message.senderId === userId ? message.recipientId : message.senderId;
+    if (!await canAccessDirectConversation(userId, peerId))
+        return c.json({ error: "You do not have access to this conversation" }, 403);
     const targetId = directConversationKey(message.senderId, message.recipientId);
     const deleted = await db.delete(messagePin).where(and(
         eq(messagePin.scope, "direct"),

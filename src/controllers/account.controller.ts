@@ -1,3 +1,4 @@
+import { endDirectCallsBetween } from "./direct-call.controller";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { Context } from "hono";
@@ -49,6 +50,9 @@ export async function blockUser(c: Context) {
         }).where(and(eq(friendRequest.requesterId, targetId), eq(friendRequest.recipientId, userId), eq(friendRequest.status, "pending")));
     });
     revokeDirectConversation(userId, targetId);
+    await endDirectCallsBetween(userId, targetId).catch(error => {
+        console.error("Unable to revoke private calls:", error);
+    });
     return c.body(null, 204);
 }
 

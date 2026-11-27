@@ -193,6 +193,12 @@ export type ScheduledMessageEvent = {
     scheduled: ScheduledMessageSummary;
 };
 
+export type DirectCallEvent = {
+    type: "direct_call";
+    callId: string;
+    status: "ringing" | "active" | "declined" | "ended";
+};
+
 export type RealtimeEvent =
     | ServerEvent
     | NotificationEvent
@@ -202,7 +208,8 @@ export type RealtimeEvent =
     | ReadStateEvent
     | PollEvent
     | PinEvent
-    | ScheduledMessageEvent;
+    | ScheduledMessageEvent
+    | DirectCallEvent;
 
 export function isRealtimeEvent(value: unknown): value is RealtimeEvent {
     if (typeof value !== "object" || value === null) return false;
@@ -257,6 +264,10 @@ export function isRealtimeEvent(value: unknown): value is RealtimeEvent {
             && (event.event === "pinned" || event.event === "unpinned")
             && typeof event.messageId === "string"
             && typeof event.actorId === "string";
+    }
+    if (event.type === "direct_call") {
+        return typeof event.callId === "string"
+            && (event.status === "ringing" || event.status === "active" || event.status === "declined" || event.status === "ended");
     }
     if (event.type === "scheduled_message") {
         return typeof event.scheduled === "object" && event.scheduled !== null;

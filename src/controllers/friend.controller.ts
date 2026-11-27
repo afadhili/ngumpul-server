@@ -1,3 +1,4 @@
+import { endDirectCallsBetween } from "./direct-call.controller";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, or } from "drizzle-orm";
 import type { Context } from "hono";
@@ -152,6 +153,9 @@ export async function removeFriend(c: Context) {
     const removed = await db.delete(friendship).where(and(eq(friendship.userId, firstId), eq(friendship.friendUserId, secondId))).returning();
     if (removed.length) {
         revokeDirectConversation(userId, friendUserId);
+        await endDirectCallsBetween(userId, friendUserId).catch(error => {
+            console.error("Unable to revoke private calls:", error);
+        });
         return c.body(null, 204);
     }
     return c.json({ error: "Friend not found" }, 404);

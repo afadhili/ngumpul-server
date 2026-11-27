@@ -1,8 +1,8 @@
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db } from "../db/index";
 import { channelMessage } from "../db/schema/channel-message";
-import { directMessage } from "../db/schema/direct-message";
+import { directMessage, directMessageHidden } from "../db/schema/direct-message";
 import { user } from "../db/schema/auth";
 import { friendship, serverChannel, serverMember } from "../db/schema/community";
 import { directConversationKey } from "../lib/conversation-key";
@@ -89,7 +89,13 @@ export async function searchDirectMessages(c: Context) {
             and(eq(directMessage.recipientId, userId), inArray(directMessage.senderId, peerIds)),
         )!);
     }
-    conditions.push(isNull(directMessage.deletedAt));
+    conditions.push(
+        isNull(directMessage.deletedAt),
+        or(isNull(directMessage.expiresAt), sql`${directMessage.expiresAt} > now()`),
+        notExists(db.select({ messageId: directMessageHidden.messageId }).from(directMessageHidden).where(and(
+            eq(directMessageHidden.messageId, directMessage.id), eq(directMessageHidden.userId, userId),
+        ))),
+    );
     conditions.push(ilike(directMessage.text, `%${query.text}%`));
     if (query.senderId) conditions.push(eq(directMessage.senderId, query.senderId));
     if (query.hasAttachment) conditions.push(sql`${directMessage.attachmentId} is not null`);

@@ -42,9 +42,10 @@ export function attachWebSocket(server: Server) {
             if (client.readyState !== WebSocket.OPEN || !scope) continue;
 
             if (message.type === "direct_message") {
-                const isVisible = scope.type === "direct"
-                    && (scope.userId === message.senderId || scope.userId === message.recipientId)
-                    && (scope.peerId === message.senderId || scope.peerId === message.recipientId);
+                const peerId = scope.userId === message.senderId ? message.recipientId
+                    : scope.userId === message.recipientId ? message.senderId : undefined;
+                const isVisible = peerId && (scope.type === "user" ||
+                    (scope.type === "direct" && scope.peerId === peerId));
                 if (isVisible) client.send(JSON.stringify(message));
             } else if (message.type === "channel_message") {
                 const isVisible = scope.type === "channel" && scope.channelId === message.channelId;

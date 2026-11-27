@@ -74,7 +74,13 @@ export async function listDirectMessages(c: Context) {
         .limit(rawLimit);
     const replyIds = [...new Set(rows.map(row => row.replyToMessageId).filter((id): id is string => Boolean(id)))];
     const replyRows = replyIds.length
-        ? await db.select().from(directMessage).where(inArray(directMessage.id, replyIds))
+        ? await db.select().from(directMessage).where(and(
+            inArray(directMessage.id, replyIds), conversation,
+            or(isNull(directMessage.expiresAt), gt(directMessage.expiresAt, new Date())),
+            notExists(db.select({ messageId: directMessageHidden.messageId }).from(directMessageHidden).where(and(
+                eq(directMessageHidden.messageId, directMessage.id), eq(directMessageHidden.userId, userId),
+            ))),
+        ))
         : [];
     const metaMap = await loadDirectMessageMeta([...rows, ...replyRows], userId);
     const replyById = new Map(replyRows.map(row => [row.id, toPublicMessage(row, metaFor(metaMap, row.id))]));
