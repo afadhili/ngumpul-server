@@ -402,6 +402,10 @@ check("create attachment upload", startUpload.status === 201 && Boolean(attachme
 if (attachmentId && uploadForm) {
     const path = `/api/attachments/${attachmentId}`;
     try {
+        if (process.env.S3_PUBLIC_ENDPOINT) {
+            check("signed upload uses the configured storage origin",
+                new URL(uploadForm.url).origin === new URL(process.env.S3_PUBLIC_ENDPOINT).origin);
+        }
         const form = new FormData();
         for (const [key, value] of Object.entries(uploadForm.fields)) form.append(key, value);
         form.append("file", new Blob([fileContents], { type: "text/plain" }), "smoke.txt");

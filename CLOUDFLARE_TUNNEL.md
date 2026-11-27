@@ -140,14 +140,16 @@ LIVEKIT_PUBLIC_URL=wss://livekit.afadhili.my.id
 S3_PUBLIC_ENDPOINT=https://storage.afadhili.my.id
 ```
 
-`CORS_ORIGIN` is the frontend origin, which may be a separate hostname or a Cloudflare Pages project. It is also passed to RustFS as `RUSTFS_CORS_ALLOWED_ORIGINS`, so recreate both services after changing it:
+`CORS_ORIGIN` is the exact frontend origin. Use `CORS_ORIGIN=http://localhost:5173` when Vite calls the public API from your machine. Compose also passes that value to RustFS as `RUSTFS_CORS_ALLOWED_ORIGINS`. Apply the settings on the machine running the public API by recreating both containers:
 
 ```sh
-docker compose up -d app rustfs
+docker compose up -d --no-deps --force-recreate app rustfs
+docker compose exec -T app printenv BETTER_AUTH_URL CORS_ORIGIN S3_ENDPOINT S3_PUBLIC_ENDPOINT
 ```
 
 Notes:
 
+- Keep the Compose API's `S3_ENDPOINT` on `http://rustfs:9000`. The API uses `S3_PUBLIC_ENDPOINT` to sign the browser upload form and preview and download URLs. With the tunnel, the upload form should point to `https://storage.afadhili.my.id/pbp-attachments`.
 - `BETTER_AUTH_URL` must be the exact public API origin, including `https`, so cookies and OAuth callbacks are correct.
 - The browser must be able to reach `storage.afadhili.my.id` for presigned attachment URLs and previews.
 - If the frontend is on a different origin, it must send cookies with `credentials: "include"`.
@@ -182,6 +184,6 @@ Cloudflare Spectrum can proxy UDP/TCP, but it is a paid product and is not part 
 | `cloudflared` exits immediately | `cloudflared/config.yml` or the credentials JSON is missing/unreadable. Check `docker compose logs cloudflared`. |
 | Tunnel shows no connections | The credentials file or tunnel UUID in `config.yml` is wrong. Re-run `cloudflared tunnel list`. |
 | Login/cookie failures | `BETTER_AUTH_URL` must match the public API URL exactly. |
-| CORS errors | Set `CORS_ORIGIN` to the exact frontend origin and restart the app. |
+| CORS errors on upload | Check the URL returned by `POST /api/attachments/uploads`. For a public API it should point to the storage hostname. Check that both the API and storage allow the exact frontend origin. |
 | Previews fail | `S3_PUBLIC_ENDPOINT` must be publicly reachable and match the hostname routed to `rustfs:9000`. |
 | WebSocket fails | Cloudflare supports WebSockets, but confirm the app route and `Origin` allowlist. |

@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { isIPv4 } from "node:net";
 import { dependencyEndpoint, logDependencyError } from "../lib/dependency-errors";
 
 const bucket = process.env.S3_BUCKET;
@@ -29,6 +30,24 @@ function getClients() {
     const internal = createClient(endpoint);
     clients = { internal, public: publicEndpoint === endpoint ? internal : createClient(publicEndpoint), host };
     return clients;
+}
+
+function isLoopback(hostname: string) {
+    const host = hostname.replace(/\.$/, "");
+    return host === "localhost" || host.endsWith(".localhost") || host === "[::1]"
+        || (host.startsWith("127.") && isIPv4(host));
+}
+
+function getSigningClient() {
+    const client = getClients().public;
+    const apiUrl = process.env.BETTER_AUTH_URL;
+    if (apiUrl?.startsWith("https://") && publicEndpoint && !isLoopback(new URL(apiUrl).hostname)) {
+        const storage = new URL(publicEndpoint);
+        if (storage.protocol !== "https:" || isLoopback(storage.hostname)) {
+            throw new Error("S3_PUBLIC_ENDPOINT must be a browser-reachable HTTPS URL for a public HTTPS API");
+        }
+    }
+    return client;
 }
 
 export function ensureBucketExists() {
@@ -58,8 +77,8 @@ async function checkBucket() {
 }
 
 export async function createAttachmentUploadForm(key: string, mimeType: string, maxBytes: number) {
+    const client = getSigningClient();
     await ensureBucketExists();
-    const client = getClients().public;
     return createPresignedPost(client, {
         Bucket: requireBucket(),
         Key: key,
@@ -124,7 +143,7 @@ async function createAttachmentUrl(key: string, mimeType: string, fileName: stri
         ResponseContentType: mimeType,
         ResponseContentDisposition: `${disposition}; filename*=UTF-8''${safeName}`,
     });
-    return getSignedUrl(getClients().public, command, { expiresIn: 300 });
+    return getSignedUrl(getSigningClient(), command, { expiresIn: 300 });
 }
 
 export async function deleteObject(key: string) {
